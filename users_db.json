@@ -7,18 +7,18 @@
         "total_deposited": 6.519491525423728
     },
     "8238110323": {
-        "balance": 100000260.86440678,
+        "balance": 100000256.62064803,
         "banned": false,
         "name": "Æ Â Ł ìí",
         "username": "Nexstoxmena",
         "total_deposited": 0.0
     },
     "889194151": {
-        "balance": 1.0,
+        "balance": 5.0369025,
         "banned": false,
         "name": "AHMAD",
         "username": "Whitestorenc",
-        "total_deposited": 0.0
+        "total_deposited": 4.25
     },
     "972830090": {
         "balance": 0.0,
@@ -31,7 +31,7 @@
         "balance": 0.0,
         "banned": false,
         "name": ".",
-        "username": "No User",
+        "username": null,
         "total_deposited": 0.0
     }
 }

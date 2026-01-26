@@ -53,18 +53,18 @@ async def view_deposit_details(call: types.CallbackQuery):
     usd_methods = ["sham_usd", "usdt_bep20", "usdt_coinex"]
     currency = "$" if req['method'] in usd_methods else "ل.س"
     rate = settings.get_setting("exchange_rate")
-    
+
     # Calculate what will be added (with commission)
     commission = settings.get_deposit_commission()
     amount = float(req['amount'])
-    
+
     if req['method'] in usd_methods:
         deposit_usd = amount
         deposit_syp = int(amount * rate)
     else:
         deposit_syp = int(amount)
         deposit_usd = amount / rate
-    
+
     commission_amount = deposit_usd * (commission / 100)
     final_usd = deposit_usd - commission_amount
     final_syp = int(round(final_usd * rate))
@@ -79,18 +79,18 @@ async def view_deposit_details(call: types.CallbackQuery):
         f"🇺🇸 {final_usd:.2f} $\n"
         f"🇸🇾 {final_syp:,} ل.س\n"
     )
-    
+
     if commission > 0:
         txt += f"📊 العمولة ({commission}%): {commission_amount:.2f} $\n"
-    
+
     txt += (
         f"🔢 رقم العملية: <code>{req['txn_id']}</code>\n"
         f"📅 التاريخ: {req['date']}\n"
     )
-    
+
     if req.get('proof_image_id'):
         txt += f"📸 يوجد صورة إثبات\n"
-    
+
     txt += f"━━━━━━━━━━━━\n"
     txt += f"⚠️ <b>يرجى التأكد من وصول الحوالة قبل القبول.</b>"
 
@@ -101,7 +101,7 @@ async def view_deposit_details(call: types.CallbackQuery):
         ],
         [InlineKeyboardButton(text="🔙 رجوع للقائمة", callback_data="admin_deposits")]
     ])
-    
+
     # Show proof image if available
     if req.get('proof_image_id'):
         try:
@@ -132,7 +132,7 @@ async def approve_deposit(call: types.CallbackQuery):
     method = req['method']
     rate = settings.get_setting("exchange_rate")
     commission = settings.get_deposit_commission()
-    
+
     if rate == 0:
         rate = 1
 
@@ -145,7 +145,7 @@ async def approve_deposit(call: types.CallbackQuery):
     else:
         deposit_syp = int(amount)
         deposit_usd = amount / rate
-    
+
     # Apply commission
     commission_amount = deposit_usd * (commission / 100)
     final_usd = deposit_usd - commission_amount
@@ -153,7 +153,7 @@ async def approve_deposit(call: types.CallbackQuery):
 
     # Get current balance before adding
     old_bal = database.get_balance(req['user_id'])
-    
+
     # Add balance (mark as deposit for statistics)
     new_bal = database.add_balance(req['user_id'], final_usd, is_deposit=True)
     database.remove_deposit_request(req_id)
@@ -311,7 +311,7 @@ async def confirm_bulk_approve_deposits(call: types.CallbackQuery):
     rate = settings.get_setting("exchange_rate")
     commission = settings.get_deposit_commission()
     usd_methods = ["sham_usd", "usdt_bep20", "usdt_coinex"]
-    
+
     # Fix: Protect against division by zero
     if rate == 0:
         rate = 1

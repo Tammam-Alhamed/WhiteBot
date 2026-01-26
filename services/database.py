@@ -307,3 +307,39 @@ def get_last_report_date(report_type):
     """Get last generated report date for a specific type."""
     metadata = load_reports_metadata()
     return metadata.get(f"last_{report_type}")
+
+
+def register_user(user_id, name, username):
+    """
+    تسجيل مستخدم جديد في قاعدة البيانات أو تحديث بياناته إذا كان موجوداً.
+    """
+    db_file = "users_db.json"
+
+    # 1. محاولة تحميل الملف الحالي
+    try:
+        with open(db_file, "r", encoding="utf-8") as f:
+            users = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        users = {}
+
+    str_id = str(user_id)
+
+    # 2. التحقق: هل المستخدم جديد؟
+    if str_id not in users:
+        # إضافة مستخدم جديد
+        users[str_id] = {
+            "id": user_id,
+            "name": name,
+            "username": username,
+            "balance": 0,
+            "total_spent": 0,
+            "joined_at": str(datetime.now())
+        }
+    else:
+        # تحديث بيانات المستخدم الموجود (الاسم واليوزرنيم)
+        users[str_id]["name"] = name
+        users[str_id]["username"] = username
+
+    # 3. حفظ البيانات
+    with open(db_file, "w", encoding="utf-8") as f:
+        json.dump(users, f, indent=4, ensure_ascii=False)

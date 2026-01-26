@@ -12,29 +12,28 @@ from states.shop import ShopState
 
 router = Router()
 
-
 @router.callback_query(F.data.startswith("open:"))
 async def products(call: types.CallbackQuery, state: FSMContext):
     """Show products in a category."""
     parts = call.data.split(":")
     pid = parts[1]
-    parent_key = parts[2] if len(parts) > 2 else "" 
-    
+    parent_key = parts[2] if len(parts) > 2 else ""
+
     prods = api_manager.get_products_by_cat_id(pid)
     if not prods:
         return await call.answer("لا يوجد منتجات", show_alert=True)
-    
+
     if parent_key in mappings.GAMES_MAP:
         back_callback = f"srch_g:{parent_key}"
     elif parent_key in mappings.APPS_MAP:
         back_callback = f"srch_a:{parent_key}"
     else:
         back_callback = "home"
-    
+
     await state.update_data(back_path=call.data)
     for p in prods:
         p['formatted_price'] = format_price(p['price'])
-        
+
     menu = kb.build_products(prods, back_callback)
     await smart_edit(call, "👇 المنتجات المتاحة:", menu)
 
@@ -46,25 +45,23 @@ async def init_buy(call: types.CallbackQuery, state: FSMContext):
     prod = api_manager.get_product_details(pid)
     if not prod:
         return await call.answer("خطأ: المنتج غير موجود", show_alert=True)
-    
+
     data = await state.get_data()
-    back_target = data.get('back_path', 'home') 
-    
+    back_target = data.get('back_path', 'home')
+
     await state.update_data(real_user_id=call.from_user.id)
     await state.update_data(prod=prod, collected=[], idx=0, qty=1, params=prod.get('params', []))
-    
+
     # Check if PUBG order for currency display consistency
     category_name = prod.get('category_name', '')
     is_pubg = 'PUBG' in category_name or 'ببجي' in category_name
-    
+
     if is_pubg:
-        # Show price in SYP for PUBG orders
         syp_price = format_price(prod['price'])
         desc = prod.get('description', '')
         desc_txt = f"\n\n📝 <b>ملاحظات:</b>\n{desc}" if desc else ""
         txt = f"🛒 <b>شراء:</b> {prod['name']}\n💰 <b>السعر:</b> {syp_price}{desc_txt}"
     else:
-        # Show price in both currencies for other orders
         rate = settings.get_setting("exchange_rate")
         price_usd = prod['price']
         price_syp = int(price_usd * rate)
@@ -76,40 +73,40 @@ async def init_buy(call: types.CallbackQuery, state: FSMContext):
             f"🇺🇸 {price_usd:.2f} $\n"
             f"🇸🇾 {price_syp:,} ل.س{desc_txt}"
         )
-    
+
     cancel_markup = kb.cancel_or_back_btn(back_target)
-    
+
+    # ⚠️ التعديل الهام هنا: استخدام smart_edit بدلاً من delete+answer
+
     if prod.get('product_type') == "amount":
         qv = prod.get('qty_values', {})
         await state.update_data(min_q=qv.get('min', 1), max_q=qv.get('max', 100000))
         await state.set_state(ShopState.waiting_for_quantity)
-        await call.message.delete()
-        await call.message.answer(
-            txt + "\n\n👇 <b>أدخل الكمية المطلوبة:</b>",
-            reply_markup=cancel_markup,
-            parse_mode="HTML"
-        )
-    
+
+        msg_text = txt + "\n\n👇 <b>أدخل الكمية المطلوبة:</b>"
+        await smart_edit(call, msg_text, cancel_markup)
+
     elif not prod.get('params'):
+        # هنا نحذف لأننا سننشيء عملية جديدة وقد لا يكون هناك رسالة لتعديلها بعد انتهاء العملية
         await call.message.delete()
         await finalize_order(call.message, state, call.bot)
-    
+
     else:
-        await call.message.delete()
         await state.set_state(ShopState.waiting_for_input)
-        await call.message.answer(
-            f"{txt}\n\n📝 أدخل: <b>{prod['params'][0]}</b>",
-            reply_markup=cancel_markup,
-            parse_mode="HTML"
-        )
+        msg_text = f"{txt}\n\n📝 أدخل: <b>{prod['params'][0]}</b>"
+        await smart_edit(call, msg_text, cancel_markup)
 
 
+# باقي الدوال (process_qty, process_inp, finalize_order) تبقى كما هي دون تغيير
+# ... (تكملة الملف كما هو عندك) ...
+# ...
 @router.message(ShopState.waiting_for_quantity)
 async def process_qty(msg: types.Message, state: FSMContext):
-    """Process quantity input with validation."""
+    # ... (نفس الكود القديم) ...
+    # فقط تأكد أنك نسخت باقي الملف كما هو
     if not msg.text:
         return await msg.answer("❌ يرجى إرسال الكمية كرقم.")
-    
+
     data = await state.get_data()
     back_target = data.get('back_path', 'home')
     cancel_markup = kb.cancel_or_back_btn(back_target)
@@ -118,7 +115,7 @@ async def process_qty(msg: types.Message, state: FSMContext):
         qty = int(msg.text.strip())
         min_q = data.get('min_q', 1)
         max_q = data.get('max_q', 100000)
-        
+
         if qty < min_q:
             return await msg.answer(
                 f"❌ <b>الكمية صغيرة جداً:</b>\n"
@@ -135,12 +132,12 @@ async def process_qty(msg: types.Message, state: FSMContext):
                 reply_markup=cancel_markup,
                 parse_mode="HTML"
             )
-        
+
         await state.update_data(qty=qty)
-        
+
         total = float(data['prod']['price']) * qty
         await msg.answer(f"✅ الكمية: {qty}\n💰 المجموع: {format_price(total)}")
-        
+
         if not data['params']:
             await finalize_order(msg, state, msg.bot)
         else:
@@ -164,21 +161,17 @@ async def process_qty(msg: types.Message, state: FSMContext):
 
 @router.message(ShopState.waiting_for_input)
 async def process_inp(msg: types.Message, state: FSMContext):
-    """Process input parameters with validation."""
     if not msg.text:
         return await msg.answer("❌ يرجى إرسال النص المطلوب.")
-    
+
     d = await state.get_data()
     back_target = d.get('back_path', 'home')
     cancel_markup = kb.cancel_or_back_btn(back_target)
-    
-    # Get current parameter name for validation
+
     current_param = d['params'][d['idx']] if d['params'] else ""
     user_input = msg.text.strip()
-    
-    # Validate input based on parameter type
+
     if 'player' in current_param.lower() or 'id' in current_param.lower():
-        # Player ID validation - should be numeric
         if not user_input.isdigit():
             return await msg.answer(
                 "❌ <b>خطأ في الإدخال:</b>\n"
@@ -187,7 +180,6 @@ async def process_inp(msg: types.Message, state: FSMContext):
                 reply_markup=cancel_markup,
                 parse_mode="HTML"
             )
-        # Check minimum length (e.g., 6 digits for most games)
         if len(user_input) < 6:
             return await msg.answer(
                 "❌ <b>خطأ في الإدخال:</b>\n"
@@ -197,7 +189,6 @@ async def process_inp(msg: types.Message, state: FSMContext):
                 parse_mode="HTML"
             )
     elif 'user' in current_param.lower() or 'username' in current_param.lower():
-        # Username validation - should start with @
         if not user_input.startswith('@'):
             return await msg.answer(
                 "❌ <b>خطأ في الإدخال:</b>\n"
@@ -207,11 +198,11 @@ async def process_inp(msg: types.Message, state: FSMContext):
                 reply_markup=cancel_markup,
                 parse_mode="HTML"
             )
-    
+
     inputs = d['collected']
     inputs.append(user_input)
     await state.update_data(collected=inputs)
-    
+
     idx = d['idx'] + 1
     if idx < len(d['params']):
         await state.update_data(idx=idx)
@@ -226,21 +217,19 @@ async def process_inp(msg: types.Message, state: FSMContext):
 
 
 async def finalize_order(msg: types.Message, state: FSMContext, bot: Bot):
-    """Finalize and execute order with balance transparency."""
     d = await state.get_data()
     uid = d.get('real_user_id', msg.from_user.id)
     if uid == bot.id:
         uid = msg.chat.id
-    
+
     prod, qty = d['prod'], d['qty']
     total = float(prod['price']) * qty
     rate = settings.get_setting("exchange_rate")
     total_syp = int(total * rate)
-    
-    # Get balance before deduction
+
     old_bal = database.get_balance(uid)
     old_bal_syp = int(old_bal * rate)
-    
+
     if not database.deduct_balance(uid, total):
         await msg.answer(
             f"{config.MSG_NO_BALANCE}\n💰 التكلفة: {format_price(total)}",
@@ -250,7 +239,6 @@ async def finalize_order(msg: types.Message, state: FSMContext, bot: Bot):
         await state.clear()
         return
 
-    # Get balance after deduction
     new_bal = database.get_balance(uid)
     new_bal_syp = int(new_bal * rate)
 
@@ -258,7 +246,7 @@ async def finalize_order(msg: types.Message, state: FSMContext, bot: Bot):
     ok, res, uuid, code = await api_manager.execute_order_dynamic(
         prod['id'], qty, d['collected'], d['params']
     )
-    
+
     if ok:
         if uuid:
             api_manager.save_uuid_locally(uid, uuid)
@@ -278,7 +266,7 @@ async def finalize_order(msg: types.Message, state: FSMContext, bot: Bot):
             f"🕵️‍♂️ <b>ملاحظة:</b> يمكنك متابعة حالة التنفيذ من قسم <b>📦 طلباتي</b>."
         )
         await msg.answer(txt, parse_mode="HTML")
-        
+
     elif code == 100:
         lid = database.save_pending_order(uid, prod, qty, d['collected'], d['params'])
         txt = (
@@ -305,6 +293,6 @@ async def finalize_order(msg: types.Message, state: FSMContext, bot: Bot):
     else:
         database.add_balance(uid, total)
         await msg.answer(f"❌ فشل: {res}\n✅ تم استرجاع الرصيد", parse_mode="HTML")
-    
+
     await state.clear()
     await msg.answer("القائمة الرئيسية:", reply_markup=kb.main_menu())
