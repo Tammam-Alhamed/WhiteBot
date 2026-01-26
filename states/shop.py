@@ -10,5 +10,6 @@ class ShopState(StatesGroup):
 
 class DepositState(StatesGroup):
     """States for deposit operations."""
-    waiting_for_txn_id = State()
-    waiting_for_amount = State()
+    waiting_for_amount = State()  # Step 1: Ask for amount first
+    waiting_for_txn_id = State()  # Step 2: Ask for transaction number
+    waiting_for_proof = State()   # Step 3: Ask for proof image (optional)

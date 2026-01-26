@@ -29,7 +29,11 @@ def ensure_user_exists(user_id):
     data = load_json(DB_FILE)
     uid = str(user_id)
     if uid not in data:
-        data[uid] = {"balance": 0.0, "banned": False}
+        data[uid] = {"balance": 0.0, "banned": False, "total_deposited": 0.0}
+        save_json(DB_FILE, data)
+    # Migrate old users to include total_deposited
+    elif "total_deposited" not in data[uid]:
+        data[uid]["total_deposited"] = 0.0
         save_json(DB_FILE, data)
     return data
 
@@ -43,13 +47,26 @@ def get_balance(user_id):
     data = load_json(DB_FILE)
     return data[str(user_id)].get("balance", 0.0)
 
-def add_balance(user_id, amount):
+def add_balance(user_id, amount, is_deposit=False):
+    """Add balance to user. If is_deposit=True, track in total_deposited."""
     data = ensure_user_exists(user_id)
     uid = str(user_id)
     current = float(data[uid].get("balance", 0.0))
-    data[uid]["balance"] = current + float(amount)
+    amount_float = float(amount)
+    data[uid]["balance"] = current + amount_float
+    
+    # Track total deposited amount for statistics
+    if is_deposit:
+        current_deposited = data[uid].get("total_deposited", 0.0)
+        data[uid]["total_deposited"] = current_deposited + amount_float
+    
     save_json(DB_FILE, data)
     return data[uid]["balance"]
+
+def get_total_deposited(user_id):
+    """Get total lifetime deposited amount."""
+    data = ensure_user_exists(user_id)
+    return data[str(user_id)].get("total_deposited", 0.0)
 
 def deduct_balance(user_id, amount):
     """خصم آمن مع معالجة الكسور العشرية"""
@@ -189,7 +206,7 @@ def get_all_user_ids():
 if not os.path.exists(DEPOSITS_FILE): save_json(DEPOSITS_FILE, [])
 
 
-def save_deposit_request(user_id, method, txn_id, amount):
+def save_deposit_request(user_id, method, txn_id, amount, proof_image_id=None):
     reqs = load_json(DEPOSITS_FILE)
 
     # توليد آيدي عشوائي للطلب
@@ -202,6 +219,7 @@ def save_deposit_request(user_id, method, txn_id, amount):
         "method": method,
         "txn_id": txn_id,
         "amount": float(amount),
+        "proof_image_id": proof_image_id,
         "date": datetime.now().strftime("%Y-%m-%d %I:%M %p"),
         "status": "pending"
     }

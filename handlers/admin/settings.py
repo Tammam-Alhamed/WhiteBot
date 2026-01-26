@@ -41,6 +41,12 @@ async def set_new_rate(msg: types.Message, state: FSMContext):
         await msg.answer("❌ يرجى إرسال أرقام فقط!")
 
 
+@router.callback_query(F.data == "ignore")
+async def ignore_callback(call: types.CallbackQuery):
+    """Ignore callback for separator buttons."""
+    await call.answer()
+
+
 @router.callback_query(F.data == "admin_edit_margin")
 async def show_margins_menu(call: types.CallbackQuery, state: FSMContext):
     """Show margins management menu."""
@@ -126,6 +132,109 @@ async def save_new_margin(msg: types.Message, state: FSMContext):
         f"✅ <b>تم التحديث بنجاح!</b>\n"
         f"تم تغيير نسبة ربح <b>{cat}</b> إلى: <b>{user_input}%</b>\n"
         f"الأسعار الجديدة ظهرت الآن في المتجر.",
+        reply_markup=kb.admin_dashboard(),
+        parse_mode="HTML"
+    )
+    await state.clear()
+
+
+@router.callback_query(F.data == "admin_edit_commission")
+async def ask_new_commission(call: types.CallbackQuery, state: FSMContext):
+    """Ask for new deposit commission."""
+    current_commission = settings.get_deposit_commission()
+    await smart_edit(
+        call,
+        f"💵 <b>عمولة الإيداع الحالية:</b> {current_commission}%\n\n"
+        f"أرسل النسبة الجديدة (أرقام فقط):\n"
+        f"• اكتب <b>0</b> لإلغاء العمولة\n"
+        f"• اكتب <b>5</b> لعمولة 5%\n"
+        f"• اكتب <b>10</b> لعمولة 10%",
+        kb.back_to_admin()
+    )
+    await state.set_state(AdminState.waiting_for_commission)
+
+
+@router.message(AdminState.waiting_for_commission)
+async def set_new_commission(msg: types.Message, state: FSMContext):
+    """Set new deposit commission."""
+    try:
+        new_commission = float(msg.text)
+        if new_commission < 0:
+            return await msg.answer("❌ لا يمكن أن تكون النسبة سالبة!")
+        if new_commission > 100:
+            return await msg.answer("❌ لا يمكن أن تكون النسبة أكثر من 100%!")
+        
+        settings.set_deposit_commission(new_commission)
+
+        await msg.answer(
+            f"✅ تم تحديث عمولة الإيداع إلى: <b>{new_commission}%</b>",
+            reply_markup=kb.admin_dashboard(),
+            parse_mode="HTML"
+        )
+        await state.clear()
+    except:
+        await msg.answer("❌ يرجى إرسال أرقام فقط!")
+
+
+@router.callback_query(F.data == "admin_rename_categories")
+async def show_categories_to_rename(call: types.CallbackQuery, state: FSMContext):
+    """Show categories that can be renamed."""
+    await state.clear()
+    keyboard = InlineKeyboardBuilder()
+    
+    # Get all categories from mappings
+    all_categories = {}
+    all_categories.update(mappings.GAMES_MAP)
+    all_categories.update(mappings.APPS_MAP)
+    
+    for cat_key in sorted(all_categories.keys()):
+        custom_name = settings.get_category_name(cat_key)
+        display_name = custom_name if custom_name != cat_key else cat_key
+        keyboard.button(text=f"{display_name}", callback_data=f"rename_cat:{cat_key}")
+    
+    keyboard.button(text="🔙 رجوع", callback_data="admin_home")
+    keyboard.adjust(1)
+    
+    await smart_edit(
+        call,
+        "🏷️ <b>إعادة تسمية الفئات:</b>\nاختر الفئة التي تريد إعادة تسميتها:",
+        keyboard.as_markup()
+    )
+
+
+@router.callback_query(F.data.startswith("rename_cat:"))
+async def ask_new_category_name(call: types.CallbackQuery, state: FSMContext):
+    """Ask for new category name."""
+    cat_key = call.data.split(":")[1]
+    current_name = settings.get_category_name(cat_key)
+    
+    await state.update_data(cat_key=cat_key)
+    
+    await smart_edit(
+        call,
+        f"🏷️ <b>إعادة تسمية الفئة:</b>\n"
+        f"الفئة الحالية: <b>{current_name}</b>\n\n"
+        f"أرسل الاسم الجديد:",
+        kb.back_btn("admin_rename_categories")
+    )
+    await state.set_state(AdminState.waiting_for_category_rename)
+
+
+@router.message(AdminState.waiting_for_category_rename)
+async def save_new_category_name(msg: types.Message, state: FSMContext):
+    """Save new category name."""
+    if not msg.text or len(msg.text.strip()) == 0:
+        return await msg.answer("❌ يرجى إرسال اسم صحيح.")
+    
+    new_name = msg.text.strip()
+    data = await state.get_data()
+    cat_key = data['cat_key']
+    
+    settings.set_category_name(cat_key, new_name)
+    
+    await msg.answer(
+        f"✅ <b>تم التحديث!</b>\n"
+        f"تم تغيير اسم الفئة <b>{cat_key}</b> إلى: <b>{new_name}</b>",
         reply_markup=kb.admin_dashboard(),
         parse_mode="HTML"
     )

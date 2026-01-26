@@ -8,13 +8,22 @@ def load_settings():
     if not os.path.exists(SETTINGS_FILE):
         default_data = {
             "exchange_rate": 15000,
-            "margins": {"default": 1.0}  # الافتراضي 1.0 (بدون ربح)
+            "deposit_commission": 0.0,  # Percentage commission on deposits (default 0%)
+            "margins": {"default": 1.0},  # الافتراضي 1.0 (بدون ربح)
+            "category_names": {}  # Custom category name mappings
         }
         save_settings(default_data)
         return default_data
     try:
         with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+            # Migrate old settings
+            if "deposit_commission" not in data:
+                data["deposit_commission"] = 0.0
+            if "category_names" not in data:
+                data["category_names"] = {}
+            save_settings(data)
+            return data
     except:
         return {}
 
@@ -53,4 +62,26 @@ def set_category_margin(category_name, value):
     data = load_settings()
     if "margins" not in data: data["margins"] = {}
     data["margins"][category_name] = float(value)
+    save_settings(data)
+
+def get_deposit_commission():
+    """Get deposit commission percentage."""
+    return float(get_setting("deposit_commission", 0.0))
+
+def set_deposit_commission(percentage):
+    """Set deposit commission percentage."""
+    update_setting("deposit_commission", float(percentage))
+
+def get_category_name(category_key):
+    """Get custom category name or return original."""
+    data = load_settings()
+    category_names = data.get("category_names", {})
+    return category_names.get(category_key, category_key)
+
+def set_category_name(category_key, custom_name):
+    """Set custom name for a category."""
+    data = load_settings()
+    if "category_names" not in data:
+        data["category_names"] = {}
+    data["category_names"][category_key] = custom_name
     save_settings(data)

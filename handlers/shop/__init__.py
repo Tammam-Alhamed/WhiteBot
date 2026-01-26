@@ -1,5 +1,6 @@
 """Shop handlers router."""
 from aiogram import Router
+from bot.middlewares.maintenance import MaintenanceMiddleware
 from bot.middlewares.subscription import StrictSubscriptionMiddleware
 
 # Import all shop handlers
@@ -8,9 +9,7 @@ from . import navigation, products, orders, deposit, white
 # Create main shop router
 router = Router(name="shop")
 
-# Apply subscription middleware
-router.message.middleware(StrictSubscriptionMiddleware())
-router.callback_query.middleware(StrictSubscriptionMiddleware())
+
 
 # Include all sub-routers
 router.include_router(navigation.router)

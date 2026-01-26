@@ -2,6 +2,7 @@
 from aiogram import Router, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 import asyncio
 import config
 import services.settings as settings
@@ -118,3 +119,58 @@ async def execute_broadcast(msg: types.Message, state: FSMContext):
     
     await status_msg.edit_text(report, parse_mode="HTML", reply_markup=kb.back_to_admin())
     await state.clear()
+
+
+@router.callback_query(F.data == "admin_pending_all")
+async def show_all_pending(call: types.CallbackQuery):
+    """Show unified view of all pending requests (deposits + orders)."""
+    from services.database import load_json, DEPOSITS_FILE, PENDING_FILE
+    
+    # Get pending deposits
+    all_deposits = load_json(DEPOSITS_FILE)
+    pending_deposits = [r for r in all_deposits if r.get('status') == 'pending']
+    
+    # Get pending orders
+    all_orders = load_json(PENDING_FILE)
+    pending_orders = [o for o in all_orders if o.get('status') == 'pending']
+    
+    total_pending = len(pending_deposits) + len(pending_orders)
+    
+    if total_pending == 0:
+        return await smart_edit(
+            call,
+            "✅ <b>لا يوجد طلبات معلقة حالياً.</b>",
+            kb.admin_dashboard()
+        )
+    
+    keyboard = InlineKeyboardBuilder()
+    
+    # Add deposit requests
+    if pending_deposits:
+        keyboard.button(text="━━ 💰 طلبات الإيداع ━━", callback_data="ignore")
+        for req in pending_deposits[:10]:  # Limit to 10
+            usd_methods = ["sham_usd", "usdt_bep20", "usdt_coinex"]
+            currency = "$" if req['method'] in usd_methods else "ل.س"
+            btn_text = f"💰 {req['method']} | {req['amount']} {currency} | {req['user_id']}"
+            keyboard.button(text=btn_text, callback_data=f"view_dep_req:{req['id']}")
+    
+    # Add order requests
+    if pending_orders:
+        keyboard.button(text="━━ 📦 طلبات الشراء ━━", callback_data="ignore")
+        for order in pending_orders[:10]:  # Limit to 10
+            btn_text = f"📦 {order['product']['name']} | {order['id']}"
+            keyboard.button(text=btn_text, callback_data=f"view_ord:{order['id']}")
+    
+    keyboard.button(text="🔙 رجوع", callback_data="admin_home")
+    keyboard.adjust(1)
+    
+    txt = (
+        f"📋 <b>جميع الطلبات المعلقة ({total_pending}):</b>\n"
+        f"━━━━━━━━━━━━\n"
+        f"💰 طلبات الإيداع: {len(pending_deposits)}\n"
+        f"📦 طلبات الشراء: {len(pending_orders)}\n"
+        f"━━━━━━━━━━━━\n"
+        f"اضغط على الطلب لعرض التفاصيل."
+    )
+    
+    await smart_edit(call, txt, keyboard.as_markup())

@@ -7,7 +7,8 @@ import config
 import services.database as database
 import services.api_manager as api_manager
 import data.keyboards as kb
-from bot.utils.helpers import smart_edit
+from bot.utils.helpers import smart_edit, format_price
+import services.settings as settings
 
 router = Router()
 
@@ -18,21 +19,27 @@ async def show_pending_orders(call: types.CallbackQuery):
     # Import here to avoid circular import
     from services.database import load_json, PENDING_FILE
     orders = load_json(PENDING_FILE)
+    
+    # Filter only pending orders
+    pending_orders = [o for o in orders if o.get('status') == 'pending']
 
-    if not orders:
+    if not pending_orders:
         return await smart_edit(call, "✅ <b>لا يوجد طلبات شراء معلقة حالياً.</b>", kb.admin_dashboard())
 
     keyboard = InlineKeyboardBuilder()
-    for order in orders:
+    for order in pending_orders:
         btn_txt = f"{order['product']['name']} | {order['id']}"
         keyboard.button(text=btn_txt, callback_data=f"view_ord:{order['id']}")
 
+    # Add bulk action buttons
+    keyboard.button(text="✅ قبول الكل", callback_data="bulk_approve_orders")
+    keyboard.button(text="❌ رفض الكل", callback_data="bulk_reject_orders")
     keyboard.button(text="🔙 رجوع", callback_data="admin_home")
     keyboard.adjust(1)
 
     await smart_edit(
         call,
-        f"📦 <b>قائمة الطلبات المعلقة ({len(orders)}):</b>\nاضغط على الطلب للتنفيذ.",
+        f"📦 <b>قائمة الطلبات المعلقة ({len(pending_orders)}):</b>\nاضغط على الطلب للتنفيذ.",
         keyboard.as_markup()
     )
 
@@ -71,6 +78,7 @@ async def view_order_details(call: types.CallbackQuery):
     )
 
     markup = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 إعادة المحاولة (API)", callback_data=f"retry_ord:{oid}")],
         [InlineKeyboardButton(text="✅ تم التنفيذ يدوياً", callback_data=f"manual_ord:{oid}")],
         [InlineKeyboardButton(text="❌ إلغاء وإرجاع الرصيد", callback_data=f"ref_ord:{oid}")],
         [InlineKeyboardButton(text="🔙 رجوع", callback_data="admin_orders")]
@@ -137,32 +145,69 @@ async def mark_manual_done(call: types.CallbackQuery):
         print(f"⚠️ تعذر إرسال إشعار للعميل: {e}")
     
     await call.answer("تم الحفظ وإشعار العميل ✅")
+    database.remove_pending_order(oid)
     await show_pending_orders(call)
 
 
 @router.callback_query(F.data.startswith("ref_ord:"))
 async def refund_order_admin(call: types.CallbackQuery):
-    """Refund order and notify user."""
+    """Refund order and notify user with balance transparency."""
     oid = call.data.split(":")[1]
     order = database.get_pending_order_by_id(oid)
     
     if not order:
         return await call.answer("الطلب غير موجود")
-    
+
     cost = float(order['product']['price']) * int(order['qty'])
-    database.add_balance(order['user_id'], cost)
+    rate = settings.get_setting("exchange_rate")
+    
+    # Check if PUBG order for currency display consistency
+    category_name = order['product'].get('category_name', '')
+    is_pubg = 'PUBG' in category_name or 'ببجي' in category_name
+    
+    # Get balance before refund
+    old_bal = database.get_balance(order['user_id'])
+    old_bal_syp = int(old_bal * rate)
+    
+    # Add refund
+    new_bal = database.add_balance(order['user_id'], cost)
+    new_bal_syp = int(new_bal * rate)
+    
+    cost_syp = int(cost * rate)
+    
     database.remove_pending_order(oid)
     
     try:
-        msg_text = (
-            f"❌ <b>تحديث حالة الطلب #{oid}</b>\n"
-            f"━━━━━━━━━━━━\n"
-            f"📦 المنتج: {order['product']['name']}\n"
-            f"📊 الحالة الجديدة: <b>ملغي (Canceled)</b>\n"
-            f"💰 الرصيد المسترجع: <b>{cost}$</b>\n"
-            f"━━━━━━━━━━━━\n"
-            f"تم إعادة المبلغ إلى محفظتك في البوت."
-        )
+        # For PUBG orders, show price in USD only
+        if is_pubg:
+            msg_text = (
+                f"❌ <b>تحديث حالة الطلب #{oid}</b>\n"
+                f"━━━━━━━━━━━━\n"
+                f"📦 المنتج: {order['product']['name']}\n"
+                f"📊 الحالة الجديدة: <b>ملغي (Canceled)</b>\n"
+                f"━━━━━━━━━━━━\n"
+                f"💰 <b>الرصيد المسترجع:</b> {cost:.2f} $\n"
+                f"💎 <b>رصيدك الحالي:</b> {new_bal:.2f} $\n"
+                f"━━━━━━━━━━━━\n"
+                f"تم إعادة المبلغ إلى محفظتك في البوت."
+            )
+        else:
+            msg_text = (
+                f"❌ <b>تحديث حالة الطلب #{oid}</b>\n"
+                f"━━━━━━━━━━━━\n"
+                f"📦 المنتج: {order['product']['name']}\n"
+                f"📊 الحالة الجديدة: <b>ملغي (Canceled)</b>\n"
+                f"━━━━━━━━━━━━\n"
+                f"💰 <b>الرصيد المسترجع:</b>\n"
+                f"🇺🇸 {cost:.2f} $\n"
+                f"🇸🇾 {cost_syp:,} ل.س\n"
+                f"━━━━━━━━━━━━\n"
+                f"💎 <b>رصيدك الحالي:</b>\n"
+                f"🇺🇸 {new_bal:.2f} $\n"
+                f"🇸🇾 {new_bal_syp:,} ل.س\n"
+                f"━━━━━━━━━━━━\n"
+                f"تم إعادة المبلغ إلى محفظتك في البوت."
+            )
         await call.bot.send_message(chat_id=order['user_id'], text=msg_text, parse_mode="HTML")
     except Exception as e:
         print(f"⚠️ تعذر إرسال إشعار للعميل: {e}")
@@ -197,3 +242,144 @@ async def export_categories(msg: types.Message):
     file = BufferedInputFile(report.encode("utf-8"), filename="categories.txt")
     
     await msg.answer_document(file, caption="📂 هذه كل الألعاب والخدمات الموجودة في الموقع حالياً.")
+
+
+@router.callback_query(F.data == "bulk_approve_orders")
+async def bulk_approve_orders(call: types.CallbackQuery):
+    """Bulk approve all pending orders."""
+    from services.database import load_json, PENDING_FILE
+    all_orders = load_json(PENDING_FILE)
+    pending = [o for o in all_orders if o.get('status') == 'pending']
+    
+    if not pending:
+        return await call.answer("لا يوجد طلبات معلقة", show_alert=True)
+    
+    # Confirm action
+    markup = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ تأكيد قبول الكل", callback_data="confirm_bulk_approve_orders")],
+        [InlineKeyboardButton(text="❌ إلغاء", callback_data="admin_orders")]
+    ])
+    
+    await smart_edit(
+        call,
+        f"⚠️ <b>تأكيد العملية:</b>\n"
+        f"سيتم قبول <b>{len(pending)}</b> طلب.\n"
+        f"سيتم تعليمها كمكتملة يدوياً.\n"
+        f"هل أنت متأكد؟",
+        markup
+    )
+
+
+@router.callback_query(F.data == "confirm_bulk_approve_orders")
+async def confirm_bulk_approve_orders(call: types.CallbackQuery):
+    """Confirm and execute bulk approve."""
+    from services.database import load_json, PENDING_FILE
+    all_orders = load_json(PENDING_FILE)
+    pending = [o for o in all_orders if o.get('status') == 'pending']
+    
+    approved_count = 0
+    
+    for order in pending:
+        try:
+            database.update_order_status(order['id'], "completed")
+            
+            # Notify user
+            try:
+                await call.bot.send_message(
+                    order['user_id'],
+                    f"✅ <b>تم قبول طلبك #{order['id']}</b>\n"
+                    f"📦 المنتج: {order['product']['name']}\n"
+                    f"📊 الحالة: مكتمل (Completed)",
+                    parse_mode="HTML"
+                )
+            except:
+                pass
+            
+            database.remove_pending_order(order['id'])
+            approved_count += 1
+        except:
+            pass
+    
+    await smart_edit(
+        call,
+        f"✅ <b>تمت العملية!</b>\n"
+        f"✅ تم القبول: {approved_count}",
+        kb.back_btn("admin_orders")
+    )
+
+
+@router.callback_query(F.data == "bulk_reject_orders")
+async def bulk_reject_orders(call: types.CallbackQuery):
+    """Bulk reject all pending orders."""
+    from services.database import load_json, PENDING_FILE
+    all_orders = load_json(PENDING_FILE)
+    pending = [o for o in all_orders if o.get('status') == 'pending']
+    
+    if not pending:
+        return await call.answer("لا يوجد طلبات معلقة", show_alert=True)
+    
+    # Confirm action
+    markup = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ تأكيد رفض الكل", callback_data="confirm_bulk_reject_orders")],
+        [InlineKeyboardButton(text="❌ إلغاء", callback_data="admin_orders")]
+    ])
+    
+    await smart_edit(
+        call,
+        f"⚠️ <b>تأكيد العملية:</b>\n"
+        f"سيتم رفض <b>{len(pending)}</b> طلب.\n"
+        f"سيتم إرجاع الرصيد للمستخدمين.\n"
+        f"هل أنت متأكد؟",
+        markup
+    )
+
+
+@router.callback_query(F.data == "confirm_bulk_reject_orders")
+async def confirm_bulk_reject_orders(call: types.CallbackQuery):
+    """Confirm and execute bulk reject."""
+    from services.database import load_json, PENDING_FILE
+    all_orders = load_json(PENDING_FILE)
+    pending = [o for o in all_orders if o.get('status') == 'pending']
+    
+    rate = settings.get_setting("exchange_rate")
+    rejected_count = 0
+    
+    for order in pending:
+        try:
+            cost = float(order['product']['price']) * int(order['qty'])
+            cost_syp = int(cost * rate)
+            
+            # Refund balance
+            new_bal = database.add_balance(order['user_id'], cost)
+            new_bal_syp = int(new_bal * rate)
+            
+            database.remove_pending_order(order['id'])
+            rejected_count += 1
+            
+            # Notify user
+            try:
+                await call.bot.send_message(
+                    order['user_id'],
+                    f"❌ <b>تم رفض طلبك #{order['id']}</b>\n"
+                    f"━━━━━━━━━━━━\n"
+                    f"📦 المنتج: {order['product']['name']}\n"
+                    f"💰 <b>الرصيد المسترجع:</b>\n"
+                    f"🇺🇸 {cost:.2f} $\n"
+                    f"🇸🇾 {cost_syp:,} ل.س\n"
+                    f"━━━━━━━━━━━━\n"
+                    f"💎 <b>رصيدك الحالي:</b>\n"
+                    f"🇺🇸 {new_bal:.2f} $\n"
+                    f"🇸🇾 {new_bal_syp:,} ل.س",
+                    parse_mode="HTML"
+                )
+            except:
+                pass
+        except:
+            pass
+    
+    await smart_edit(
+        call,
+        f"✅ <b>تمت العملية!</b>\n"
+        f"❌ تم الرفض: {rejected_count}",
+        kb.back_btn("admin_orders")
+    )

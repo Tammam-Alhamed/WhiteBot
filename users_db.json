@@ -1,26 +1,37 @@
 {
     "917962584": {
-        "balance": 8.9866525,
+        "balance": 7.1369025,
         "banned": false,
         "name": "Tammam",
-        "username": "tammam7941"
+        "username": "tammam7941",
+        "total_deposited": 6.519491525423728
     },
     "8238110323": {
         "balance": 100000260.86440678,
         "banned": false,
         "name": "Æ Â Ł ìí",
-        "username": "Nexstoxmena"
+        "username": "Nexstoxmena",
+        "total_deposited": 0.0
     },
     "889194151": {
         "balance": 1.0,
         "banned": false,
         "name": "AHMAD",
-        "username": "Whitestorenc"
+        "username": "Whitestorenc",
+        "total_deposited": 0.0
     },
     "972830090": {
         "balance": 0.0,
         "banned": false,
         "name": "Hussein",
-        "username": "HuSsein0991"
+        "username": "HuSsein0991",
+        "total_deposited": 0.0
+    },
+    "6102508532": {
+        "balance": 0.0,
+        "banned": false,
+        "name": ".",
+        "username": "No User",
+        "total_deposited": 0.0
     }
 }

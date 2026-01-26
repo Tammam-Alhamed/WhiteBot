@@ -136,6 +136,8 @@ def admin_dashboard():
 
     # الصف الثالث: إدارة الأسعار والأدوات
     kb.button(text="🏷️ إدارة نسبة الربح", callback_data="admin_edit_margin")  # ✅ تم استرجاعه
+    kb.button(text="💳 عمولة الإيداع", callback_data="admin_edit_commission")
+    kb.button(text="📝 إعادة تسمية الفئات", callback_data="admin_rename_categories")
     kb.button(text="📢 إرسال رسالة للكل", callback_data="admin_broadcast")
 
     # الصف الرابع: النظام

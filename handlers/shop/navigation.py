@@ -1,9 +1,13 @@
 """Shop navigation handlers."""
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
+from aiogram.types import InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
 import data.mappings as mappings
 import data.keyboards as kb
 import services.api_manager as api_manager
+import services.settings as settings
 from bot.utils.helpers import smart_edit
 
 router = Router()
@@ -19,7 +23,22 @@ async def navigation(call: types.CallbackQuery):
     
     mapping = mappings.GAMES_MAP if key == "games" else mappings.APPS_MAP
     prefix = "srch_g" if key == "games" else "srch_a"
-    await smart_edit(call, f"📂 قسم {key}:", kb.build_main_cats(mapping, prefix))
+    
+    # Build mapping with custom names but keep original keys for callback
+    display_mapping = {}
+    for cat_key in mapping.keys():
+        display_name = settings.get_category_name(cat_key)
+        # Store original key with display name
+        display_mapping[display_name] = (cat_key, mapping[cat_key])
+    
+    # Create custom keyboard builder
+    builder = InlineKeyboardBuilder()
+    for display_name, (original_key, keywords) in display_mapping.items():
+        builder.button(text=display_name, callback_data=f"{prefix}:{original_key}")
+    builder.adjust(2)
+    builder.row(InlineKeyboardButton(text="🔙 رجوع للرئيسية", callback_data="home"))
+    
+    await smart_edit(call, f"📂 قسم {key}:", builder.as_markup())
 
 
 @router.callback_query(F.data.contains("srch_"))

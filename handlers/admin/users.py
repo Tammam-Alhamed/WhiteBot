@@ -4,6 +4,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 import services.database as database
 import services.api_manager as api_manager
+import services.settings as settings
 import data.keyboards as kb
 from bot.utils.helpers import smart_edit
 from states.admin import AdminState
@@ -155,20 +156,65 @@ async def ask_add_bal(call: types.CallbackQuery, state: FSMContext):
 
 @router.message(AdminState.waiting_for_amount_add)
 async def exec_balance_change(msg: types.Message, state: FSMContext):
-    """Execute balance change."""
+    """Execute balance change and notify user."""
     try:
         amount = float(msg.text)
         data = await state.get_data()
         uid = data['target_uid']
         action = data.get('action', 'add')
+        rate = settings.get_setting("exchange_rate")
         
         if action == 'add':
+            old_bal = database.get_balance(uid)
             new_bal = database.add_balance(uid, amount)
-            res_txt = f"✅ <b>تم إضافة {amount}$</b>"
+            old_bal_syp = int(old_bal * rate)
+            new_bal_syp = int(new_bal * rate)
+            amount_syp = int(amount * rate)
+            
+            res_txt = f"✅ <b>تم إضافة {amount:.2f}$</b>"
+            
+            # Notify user
+            try:
+                user_msg = (
+                    f"💰 <b>تحديث الرصيد</b>\n"
+                    f"━━━━━━━━━━━━\n"
+                    f"➕ <b>المبلغ المضاف:</b>\n"
+                    f"🇺🇸 {amount:.2f} $\n"
+                    f"🇸🇾 {amount_syp:,} ل.س\n"
+                    f"━━━━━━━━━━━━\n"
+                    f"💎 <b>رصيدك الحالي:</b>\n"
+                    f"🇺🇸 {new_bal:.2f} $\n"
+                    f"🇸🇾 {new_bal_syp:,} ل.س"
+                )
+                await msg.bot.send_message(uid, user_msg, parse_mode="HTML")
+            except:
+                pass
         else:
+            old_bal = database.get_balance(uid)
             if database.deduct_balance(uid, amount):
                 new_bal = database.get_balance(uid)
-                res_txt = f"✅ <b>تم خصم {amount}$</b>"
+                old_bal_syp = int(old_bal * rate)
+                new_bal_syp = int(round(new_bal * rate))
+                amount_syp = int(amount * rate)
+                
+                res_txt = f"✅ <b>تم خصم {amount:.2f}$</b>"
+                
+                # Notify user
+                try:
+                    user_msg = (
+                        f"💰 <b>تحديث الرصيد</b>\n"
+                        f"━━━━━━━━━━━━\n"
+                        f"➖ <b>المبلغ المخصوم:</b>\n"
+                        f"🇺🇸 {amount:.2f} $\n"
+                        f"🇸🇾 {amount_syp:,} ل.س\n"
+                        f"━━━━━━━━━━━━\n"
+                        f"💎 <b>رصيدك الحالي:</b>\n"
+                        f"🇺🇸 {new_bal:.2f} $\n"
+                        f"🇸🇾 {new_bal_syp:,} ل.س"
+                    )
+                    await msg.bot.send_message(uid, user_msg, parse_mode="HTML")
+                except:
+                    pass
             else:
                 res_txt = "❌ <b>فشل الخصم:</b> الرصيد غير كافٍ."
         
@@ -199,15 +245,47 @@ async def unban_user_exec(call: types.CallbackQuery):
 
 @router.callback_query(F.data.startswith("admin_history:"))
 async def user_history(call: types.CallbackQuery):
-    """Show user order history."""
+    """Show user order history (both local and API orders)."""
     uid = call.data.split(":")[1]
-    orders = api_manager.get_user_uuids(uid)
-    if not orders:
-        return await call.answer("السجل فارغ", show_alert=True)
-    check_data = api_manager.check_orders_status(orders[:5])
-    txt = f"📜 <b>آخر طلبات {uid}:</b>\n"
-    for o in check_data:
-        txt += f"- {o.get('product_name')} | {o.get('status')} | {o.get('price')}$\n"
+    
+    txt = f"📜 <b>سجل طلبات المستخدم {uid}:</b>\n━━━━━━━━━━━━\n"
+    has_orders = False
+    
+    # Get local orders (pending + completed)
+    local_orders = database.get_user_local_orders(uid)
+    if local_orders:
+        has_orders = True
+        txt += "<b>📦 الطلبات المحلية:</b>\n"
+        for o in local_orders[:10]:  # Limit to 10 most recent
+            total_price = float(o['product']['price']) * int(o['qty'])
+            status_icon = "✅" if o['status'] == 'completed' else "⏳"
+            status_txt = "مكتمل" if o['status'] == 'completed' else "معلق"
+            txt += (
+                f"{status_icon} <b>{o['product']['name']}</b>\n"
+                f"🔢 رقم: <code>{o['id']}</code>\n"
+                f"📊 الحالة: {status_txt}\n"
+                f"💰 السعر: {total_price:.2f}$\n"
+                f"----------------\n"
+            )
+    
+    # Get API orders
+    uuids = api_manager.get_user_uuids(uid)
+    if uuids:
+        stats = api_manager.check_orders_status(uuids[:10])  # Limit to 10 most recent
+        if stats:
+            has_orders = True
+            if local_orders:
+                txt += "\n<b>🌐 طلبات API:</b>\n"
+            else:
+                txt += "<b>🌐 طلبات API:</b>\n"
+            for s in stats:
+                icon = "✅" if s.get('status') in ['completed', 'accept'] else "❌" if s.get('status') in ['canceled', 'reject'] else "⏳"
+                price = s.get('price', 0)
+                status_txt = s.get('status', 'unknown')
+                txt += f"{icon} {s.get('product_name', 'Unknown')}\n💰 {price:.2f}$ | {status_txt}\n----------------\n"
+    
+    if not has_orders:
+        txt = f"📜 <b>سجل طلبات المستخدم {uid}:</b>\n━━━━━━━━━━━━\n📂 السجل فارغ"
     
     back_markup = types.InlineKeyboardMarkup(inline_keyboard=[[
         types.InlineKeyboardButton(text="🔙 رجوع للبروفايل", callback_data=f"mang_usr:{uid}")

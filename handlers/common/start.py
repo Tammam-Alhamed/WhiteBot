@@ -32,15 +32,30 @@ async def start(msg: types.Message, state: FSMContext):
 
 @router.callback_query(F.data == "home")
 async def home(call: types.CallbackQuery, state: FSMContext):
-    """Handle home button."""
+    """Handle home button - fix duplicate message bug."""
     await state.clear()
-    await call.message.delete()
-    await call.message.answer_photo(
-        config.WELCOME_PHOTO,
-        caption="القائمة الرئيسية:",
-        reply_markup=kb.main_menu(),
-        parse_mode="HTML"
-    )
+    try:
+        await call.message.delete()
+        await call.message.answer_photo(
+            config.WELCOME_PHOTO,
+            caption="القائمة الرئيسية:",
+            reply_markup=kb.main_menu(),
+            parse_mode="HTML"
+        )
+    except:
+        # If delete fails, just edit
+        try:
+            await call.message.edit_caption(
+                caption="القائمة الرئيسية:",
+                reply_markup=kb.main_menu()
+            )
+        except:
+            await call.message.answer_photo(
+                config.WELCOME_PHOTO,
+                caption="القائمة الرئيسية:",
+                reply_markup=kb.main_menu(),
+                parse_mode="HTML"
+            )
 
 
 @router.callback_query(F.data == "cancel_op")

@@ -4,6 +4,7 @@ from aiogram.fsm.context import FSMContext
 import config
 import services.database as database
 import services.api_manager as api_manager
+import services.settings as settings
 import data.mappings as mappings
 import data.keyboards as kb
 from bot.utils.helpers import smart_edit, format_price
@@ -52,11 +53,29 @@ async def init_buy(call: types.CallbackQuery, state: FSMContext):
     await state.update_data(real_user_id=call.from_user.id)
     await state.update_data(prod=prod, collected=[], idx=0, qty=1, params=prod.get('params', []))
     
-    syp_price = format_price(prod['price'])
-    desc = prod.get('description', '')
-    desc_txt = f"\n\n📝 <b>ملاحظات:</b>\n{desc}" if desc else ""
+    # Check if PUBG order for currency display consistency
+    category_name = prod.get('category_name', '')
+    is_pubg = 'PUBG' in category_name or 'ببجي' in category_name
     
-    txt = f"🛒 <b>شراء:</b> {prod['name']}\n💰 <b>السعر:</b> {syp_price}{desc_txt}"
+    if is_pubg:
+        # Show price in SYP for PUBG orders
+        syp_price = format_price(prod['price'])
+        desc = prod.get('description', '')
+        desc_txt = f"\n\n📝 <b>ملاحظات:</b>\n{desc}" if desc else ""
+        txt = f"🛒 <b>شراء:</b> {prod['name']}\n💰 <b>السعر:</b> {syp_price}{desc_txt}"
+    else:
+        # Show price in both currencies for other orders
+        rate = settings.get_setting("exchange_rate")
+        price_usd = prod['price']
+        price_syp = int(price_usd * rate)
+        desc = prod.get('description', '')
+        desc_txt = f"\n\n📝 <b>ملاحظات:</b>\n{desc}" if desc else ""
+        txt = (
+            f"🛒 <b>شراء:</b> {prod['name']}\n"
+            f"💰 <b>السعر:</b>\n"
+            f"🇺🇸 {price_usd:.2f} $\n"
+            f"🇸🇾 {price_syp:,} ل.س{desc_txt}"
+        )
     
     cancel_markup = kb.cancel_or_back_btn(back_target)
     
@@ -87,15 +106,36 @@ async def init_buy(call: types.CallbackQuery, state: FSMContext):
 
 @router.message(ShopState.waiting_for_quantity)
 async def process_qty(msg: types.Message, state: FSMContext):
-    """Process quantity input."""
+    """Process quantity input with validation."""
+    if not msg.text:
+        return await msg.answer("❌ يرجى إرسال الكمية كرقم.")
+    
     data = await state.get_data()
     back_target = data.get('back_path', 'home')
     cancel_markup = kb.cancel_or_back_btn(back_target)
 
     try:
-        qty = int(msg.text)
-        if qty < data['min_q'] or qty > data['max_q']:
-            raise ValueError
+        qty = int(msg.text.strip())
+        min_q = data.get('min_q', 1)
+        max_q = data.get('max_q', 100000)
+        
+        if qty < min_q:
+            return await msg.answer(
+                f"❌ <b>الكمية صغيرة جداً:</b>\n"
+                f"الحد الأدنى: {min_q}\n"
+                f"يرجى المحاولة مرة أخرى:",
+                reply_markup=cancel_markup,
+                parse_mode="HTML"
+            )
+        if qty > max_q:
+            return await msg.answer(
+                f"❌ <b>الكمية كبيرة جداً:</b>\n"
+                f"الحد الأقصى: {max_q:,}\n"
+                f"يرجى المحاولة مرة أخرى:",
+                reply_markup=cancel_markup,
+                parse_mode="HTML"
+            )
+        
         await state.update_data(qty=qty)
         
         total = float(data['prod']['price']) * qty
@@ -110,25 +150,73 @@ async def process_qty(msg: types.Message, state: FSMContext):
                 parse_mode="HTML"
             )
             await state.set_state(ShopState.waiting_for_input)
-    except:
+    except ValueError:
+        await msg.answer(
+            "❌ <b>خطأ في الإدخال:</b>\n"
+            "يرجى إرسال رقم صحيح فقط.\n"
+            "مثال: <code>100</code>",
+            reply_markup=cancel_markup,
+            parse_mode="HTML"
+        )
+    except Exception as e:
         await msg.answer("❌ كمية غير صحيحة، حاول مجدداً:", reply_markup=cancel_markup)
 
 
 @router.message(ShopState.waiting_for_input)
 async def process_inp(msg: types.Message, state: FSMContext):
-    """Process input parameters."""
+    """Process input parameters with validation."""
+    if not msg.text:
+        return await msg.answer("❌ يرجى إرسال النص المطلوب.")
+    
     d = await state.get_data()
     back_target = d.get('back_path', 'home')
     cancel_markup = kb.cancel_or_back_btn(back_target)
     
+    # Get current parameter name for validation
+    current_param = d['params'][d['idx']] if d['params'] else ""
+    user_input = msg.text.strip()
+    
+    # Validate input based on parameter type
+    if 'player' in current_param.lower() or 'id' in current_param.lower():
+        # Player ID validation - should be numeric
+        if not user_input.isdigit():
+            return await msg.answer(
+                "❌ <b>خطأ في الإدخال:</b>\n"
+                f"معرف اللاعب يجب أن يكون أرقام فقط.\n"
+                f"يرجى المحاولة مرة أخرى:",
+                reply_markup=cancel_markup,
+                parse_mode="HTML"
+            )
+        # Check minimum length (e.g., 6 digits for most games)
+        if len(user_input) < 6:
+            return await msg.answer(
+                "❌ <b>خطأ في الإدخال:</b>\n"
+                f"معرف اللاعب قصير جداً. يجب أن يكون 6 أرقام على الأقل.\n"
+                f"يرجى المحاولة مرة أخرى:",
+                reply_markup=cancel_markup,
+                parse_mode="HTML"
+            )
+    elif 'user' in current_param.lower() or 'username' in current_param.lower():
+        # Username validation - should start with @
+        if not user_input.startswith('@'):
+            return await msg.answer(
+                "❌ <b>خطأ في الإدخال:</b>\n"
+                f"اسم المستخدم يجب أن يبدأ بـ @\n"
+                f"مثال: <code>@username</code>\n"
+                f"يرجى المحاولة مرة أخرى:",
+                reply_markup=cancel_markup,
+                parse_mode="HTML"
+            )
+    
     inputs = d['collected']
-    inputs.append(msg.text)
+    inputs.append(user_input)
     await state.update_data(collected=inputs)
     
     idx = d['idx'] + 1
     if idx < len(d['params']):
         await state.update_data(idx=idx)
         await msg.answer(
+            f"✅ تم حفظ: <code>{user_input}</code>\n\n"
             f"📝 أدخل: <b>{d['params'][idx]}</b>",
             reply_markup=cancel_markup,
             parse_mode="HTML"
@@ -138,7 +226,7 @@ async def process_inp(msg: types.Message, state: FSMContext):
 
 
 async def finalize_order(msg: types.Message, state: FSMContext, bot: Bot):
-    """Finalize and execute order."""
+    """Finalize and execute order with balance transparency."""
     d = await state.get_data()
     uid = d.get('real_user_id', msg.from_user.id)
     if uid == bot.id:
@@ -146,6 +234,12 @@ async def finalize_order(msg: types.Message, state: FSMContext, bot: Bot):
     
     prod, qty = d['prod'], d['qty']
     total = float(prod['price']) * qty
+    rate = settings.get_setting("exchange_rate")
+    total_syp = int(total * rate)
+    
+    # Get balance before deduction
+    old_bal = database.get_balance(uid)
+    old_bal_syp = int(old_bal * rate)
     
     if not database.deduct_balance(uid, total):
         await msg.answer(
@@ -155,6 +249,10 @@ async def finalize_order(msg: types.Message, state: FSMContext, bot: Bot):
         )
         await state.clear()
         return
+
+    # Get balance after deduction
+    new_bal = database.get_balance(uid)
+    new_bal_syp = int(new_bal * rate)
 
     await msg.answer("⏳ جاري إرسال الطلب للمزود...")
     ok, res, uuid, code = await api_manager.execute_order_dynamic(
@@ -166,20 +264,39 @@ async def finalize_order(msg: types.Message, state: FSMContext, bot: Bot):
             api_manager.save_uuid_locally(uid, uuid)
         txt = (
             f"✅ <b>تم استلام طلبك بنجاح!</b>\n"
+            f"━━━━━━━━━━━━\n"
             f"🔢 رقم العملية: <code>{res}</code>\n"
-            f"💰 تم خصم: {format_price(total)}\n\n"
+            f"━━━━━━━━━━━━\n"
+            f"💰 <b>المبلغ المخصوم:</b>\n"
+            f"🇺🇸 {total:.2f} $\n"
+            f"🇸🇾 {total_syp:,} ل.س\n"
+            f"━━━━━━━━━━━━\n"
+            f"💎 <b>رصيدك المتبقي:</b>\n"
+            f"🇺🇸 {new_bal:.2f} $\n"
+            f"🇸🇾 {new_bal_syp:,} ل.س\n"
+            f"━━━━━━━━━━━━\n"
             f"🕵️‍♂️ <b>ملاحظة:</b> يمكنك متابعة حالة التنفيذ من قسم <b>📦 طلباتي</b>."
         )
         await msg.answer(txt, parse_mode="HTML")
         
     elif code == 100:
         lid = database.save_pending_order(uid, prod, qty, d['collected'], d['params'])
-        await msg.answer(
+        txt = (
             f"⏳ <b>الطلب قيد المعالجة (Processing)</b>\n"
-            f"رقم المتابعة: <code>{lid}</code>\n"
-            f"سيتم إشعارك عند الاكتمال.",
-            parse_mode="HTML"
+            f"━━━━━━━━━━━━\n"
+            f"🔢 رقم المتابعة: <code>{lid}</code>\n"
+            f"━━━━━━━━━━━━\n"
+            f"💰 <b>المبلغ المخصوم:</b>\n"
+            f"🇺🇸 {total:.2f} $\n"
+            f"🇸🇾 {total_syp:,} ل.س\n"
+            f"━━━━━━━━━━━━\n"
+            f"💎 <b>رصيدك المتبقي:</b>\n"
+            f"🇺🇸 {new_bal:.2f} $\n"
+            f"🇸🇾 {new_bal_syp:,} ل.س\n"
+            f"━━━━━━━━━━━━\n"
+            f"سيتم إشعارك عند الاكتمال."
         )
+        await msg.answer(txt, parse_mode="HTML")
         for aid in config.ADMIN_IDS:
             try:
                 await bot.send_message(aid, f"🚨 طلب معلق جديد من {uid}")

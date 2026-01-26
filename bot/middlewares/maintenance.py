@@ -22,7 +22,7 @@ class MaintenanceMiddleware(BaseMiddleware):
                 await event.answer("🛠 نعتذر، المتجر تحت الصيانة حالياً.", show_alert=True)
             elif isinstance(event, types.Message):
                 await event.answer(config.MSG_MAINTENANCE, parse_mode="HTML")
-            return  # Stop execution
+            return None  # Stop execution
         
         # Allow passage
         return await handler(event, data)
