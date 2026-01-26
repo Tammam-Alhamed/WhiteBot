@@ -140,11 +140,14 @@ def admin_dashboard():
     kb.button(text="📝 إعادة تسمية الفئات", callback_data="admin_rename_categories")
     kb.button(text="📢 إرسال رسالة للكل", callback_data="admin_broadcast")
 
-    # الصف الرابع: النظام
+    # الصف الرابع: التقارير
+    kb.button(text="📊 التقارير", callback_data="admin_reports")
+
+    # الصف الخامس: النظام
     kb.button(text="🛠 وضع الصيانة", callback_data="admin_maintenance")
     kb.button(text="🔙 خروج", callback_data="close_admin")
 
-    kb.adjust(2, 1, 2, 2)  # ترتيب الأزرار بشكل جميل (2 بجانب بعض)
+    kb.adjust(2, 1, 2, 1, 2)  # ترتيب الأزرار بشكل جميل (2 بجانب بعض)
     return kb.as_markup()
 
 def user_manage_menu(user_id, is_banned):

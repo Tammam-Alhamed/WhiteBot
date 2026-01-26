@@ -239,3 +239,71 @@ def remove_deposit_request(req_id):
     reqs = load_json(DEPOSITS_FILE)
     new_reqs = [r for r in reqs if r['id'] != str(req_id)]
     save_json(DEPOSITS_FILE, new_reqs)
+
+
+# --- Reports Functions (دوال التقارير) ---
+
+REPORTS_METADATA_FILE = "reports_metadata.json"
+
+def get_completed_orders():
+    """Get all completed orders."""
+    all_orders = load_json(PENDING_FILE)
+    return [o for o in all_orders if o.get("status") == "completed"]
+
+
+def get_orders_by_date_range(start_date, end_date):
+    """
+    Get completed orders within a date range.
+    start_date and end_date should be datetime objects.
+    """
+    completed_orders = get_completed_orders()
+    filtered = []
+    
+    for order in completed_orders:
+        order_date_str = order.get("date", "")
+        if not order_date_str:
+            continue
+            
+        try:
+            # Parse date string (format: "YYYY-MM-DD HH:MM AM/PM")
+            order_date = datetime.strptime(order_date_str.split()[0], "%Y-%m-%d")
+            
+            # Check if order is within range (inclusive)
+            if start_date.date() <= order_date.date() <= end_date.date():
+                filtered.append(order)
+        except (ValueError, IndexError):
+            # Skip orders with invalid date format
+            continue
+    
+    return filtered
+
+
+def load_reports_metadata():
+    """Load report metadata to track last generated reports."""
+    if not os.path.exists(REPORTS_METADATA_FILE):
+        default_data = {
+            "last_daily": None,
+            "last_weekly": None,
+            "last_monthly": None
+        }
+        save_json(REPORTS_METADATA_FILE, default_data)
+        return default_data
+    return load_json(REPORTS_METADATA_FILE)
+
+
+def save_reports_metadata(data):
+    """Save report metadata."""
+    save_json(REPORTS_METADATA_FILE, data)
+
+
+def update_last_report_date(report_type, date_str):
+    """Update last generated report date for a specific type."""
+    metadata = load_reports_metadata()
+    metadata[f"last_{report_type}"] = date_str
+    save_reports_metadata(metadata)
+
+
+def get_last_report_date(report_type):
+    """Get last generated report date for a specific type."""
+    metadata = load_reports_metadata()
+    return metadata.get(f"last_{report_type}")

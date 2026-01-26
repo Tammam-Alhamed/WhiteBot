@@ -10,6 +10,9 @@ from handlers.common import router as common_router
 from handlers.shop import router as shop_router
 from handlers.admin import router as admin_router
 
+# Import report scheduler
+from reports.scheduler import setup_scheduler, shutdown_scheduler
+
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 
@@ -31,10 +34,18 @@ async def main():
     dp.message.middleware(StrictSubscriptionMiddleware())
     dp.callback_query.middleware(StrictSubscriptionMiddleware())
 
-    # 3. Delete webhook and start polling
+    # 3. Setup report scheduler
+    setup_scheduler(bot)
+    print("📊 Report scheduler started")
+
+    # 4. Delete webhook and start polling
     print("🚀 Bot is starting...")
     await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+    
+    try:
+        await dp.start_polling(bot)
+    finally:
+        shutdown_scheduler()
 
 if __name__ == "__main__":
     try:

@@ -311,6 +311,10 @@ async def confirm_bulk_approve_deposits(call: types.CallbackQuery):
     rate = settings.get_setting("exchange_rate")
     commission = settings.get_deposit_commission()
     usd_methods = ["sham_usd", "usdt_bep20", "usdt_coinex"]
+    
+    # Fix: Protect against division by zero
+    if rate == 0:
+        rate = 1
 
     approved_count = 0
     failed_count = 0

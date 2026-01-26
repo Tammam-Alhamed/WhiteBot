@@ -34,34 +34,64 @@ async def start(msg: types.Message, state: FSMContext):
 async def home(call: types.CallbackQuery, state: FSMContext):
     """Handle home button - fix duplicate message bug."""
     await state.clear()
+    await call.answer()  # Acknowledge callback to prevent duplicate handling
+    
+    # Try to edit if message has photo, otherwise delete and send new
     try:
-        await call.message.delete()
-        await call.message.answer_photo(
-            config.WELCOME_PHOTO,
-            caption="القائمة الرئيسية:",
-            reply_markup=kb.main_menu(),
-            parse_mode="HTML"
-        )
-    except:
-        # If delete fails, just edit
-        try:
+        if call.message.photo:
             await call.message.edit_caption(
                 caption="القائمة الرئيسية:",
                 reply_markup=kb.main_menu()
             )
-        except:
+        else:
+            await call.message.delete()
             await call.message.answer_photo(
                 config.WELCOME_PHOTO,
                 caption="القائمة الرئيسية:",
                 reply_markup=kb.main_menu(),
                 parse_mode="HTML"
             )
+    except Exception:
+        # If edit/delete fails, send new message (but only once)
+        try:
+            await call.message.answer_photo(
+                config.WELCOME_PHOTO,
+                caption="القائمة الرئيسية:",
+                reply_markup=kb.main_menu(),
+                parse_mode="HTML"
+            )
+        except Exception:
+            # Last resort: just edit text if photo send fails
+            await call.message.edit_text(
+                "القائمة الرئيسية:",
+                reply_markup=kb.main_menu()
+            )
 
 
 @router.callback_query(F.data == "cancel_op")
 async def cancel_operation(call: types.CallbackQuery, state: FSMContext):
     """Cancel current operation."""
-    await call.answer("تم الإلغاء ❌")
     await state.clear()
-    await call.message.delete()
-    await call.message.answer("❌ <b>تم الإلغاء.</b>", reply_markup=kb.main_menu(), parse_mode="HTML")
+    await call.answer("تم الإلغاء ❌")
+    
+    # Try to edit message instead of delete+send to avoid duplicates
+    try:
+        if call.message.photo:
+            await call.message.edit_caption(
+                caption="❌ <b>تم الإلغاء.</b>",
+                reply_markup=kb.main_menu(),
+                parse_mode="HTML"
+            )
+        else:
+            await call.message.edit_text(
+                "❌ <b>تم الإلغاء.</b>",
+                reply_markup=kb.main_menu(),
+                parse_mode="HTML"
+            )
+    except Exception:
+        # If edit fails, delete and send new (but ensure state is cleared first)
+        try:
+            await call.message.delete()
+        except Exception:
+            pass
+        await call.message.answer("❌ <b>تم الإلغاء.</b>", reply_markup=kb.main_menu(), parse_mode="HTML")
