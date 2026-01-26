@@ -1,0 +1,195 @@
+[
+    {
+        "id": "1000",
+        "user_id": 917962584,
+        "product": {
+            "id": 116,
+            "name": "Tokens 805K VIP",
+            "description": "Jawaker VIP",
+            "price": 91.2492,
+            "params": [
+                "معرف اللاعب"
+            ],
+            "category_name": "Jawaker VIP",
+            "available": true,
+            "qty_values": null,
+            "product_type": "package",
+            "parent_id": 52
+        },
+        "qty": 1,
+        "inputs": [
+            "5353"
+        ],
+        "params": [
+            "معرف اللاعب"
+        ],
+        "status": "completed",
+        "date": "Just Now"
+    },
+    {
+        "id": "1001",
+        "user_id": 917962584,
+        "product": {
+            "id": 293,
+            "name": "نجوم تليجرام",
+            "description": "المنتج يعمل بشكل يدوي ✔يحتاج من 1د لل 120 د",
+            "price": 0.026625,
+            "params": [
+                "ادخل اليوزر بداية ب @"
+            ],
+            "category_name": "خدمات تليجرام",
+            "available": true,
+            "qty_values": {
+                "min": 50,
+                "max": 100000
+            },
+            "product_type": "amount",
+            "parent_id": 144
+        },
+        "qty": 50,
+        "inputs": [
+            "@erg"
+        ],
+        "params": [
+            "ادخل اليوزر بداية ب @"
+        ],
+        "status": "pending",
+        "date": "Just Now"
+    },
+    {
+        "id": "1002",
+        "user_id": 917962584,
+        "product": {
+            "id": 881,
+            "name": "كود 60 شدة",
+            "description": "يتم تسليم بشكل تلقائي ✨️يقبل تخزين لمدة سنة ✨️",
+            "price": 0.921225,
+            "params": [],
+            "category_name": "اكواد ببجي",
+            "available": true,
+            "qty_values": null,
+            "product_type": "Package",
+            "parent_id": 147
+        },
+        "qty": 1,
+        "inputs": [],
+        "params": [],
+        "status": "pending",
+        "date": "Just Now"
+    },
+    {
+        "id": "1004",
+        "user_id": 917962584,
+        "product": {
+            "id": 881,
+            "name": "كود 60 شدة",
+            "description": "يتم تسليم بشكل تلقائي ✨️يقبل تخزين لمدة سنة ✨️",
+            "price": 0.921225,
+            "params": [],
+            "category_name": "اكواد ببجي",
+            "available": true,
+            "qty_values": null,
+            "product_type": "Package",
+            "parent_id": 147
+        },
+        "qty": 1,
+        "inputs": [],
+        "params": [],
+        "status": "pending",
+        "date": "Just Now"
+    },
+    {
+        "id": "1005",
+        "user_id": 917962584,
+        "product": {
+            "id": 881,
+            "name": "كود 60 شدة",
+            "description": "يتم تسليم بشكل تلقائي ✨️يقبل تخزين لمدة سنة ✨️",
+            "price": 0.921225,
+            "params": [],
+            "category_name": "اكواد ببجي",
+            "available": true,
+            "qty_values": null,
+            "product_type": "Package",
+            "parent_id": 147
+        },
+        "qty": 1,
+        "inputs": [],
+        "params": [],
+        "status": "pending",
+        "date": "Just Now"
+    },
+    {
+        "id": "1006",
+        "user_id": 917962584,
+        "product": {
+            "id": 916,
+            "name": "325 شدة يدوي ",
+            "description": "المنتج يعمل بشكل يدوي ✔يحتاج من 1د لل 60 د ✔يعمل من الساعة ال 10 صباحا حتى 12مساءًقد يتم تنفيذ الطلبات خارج هذه الأوقات لكن قد يحدث تأخير",
+            "price": 4.490892,
+            "params": [
+                "Player ID"
+            ],
+            "category_name": "ببجي يدوي",
+            "available": true,
+            "qty_values": null,
+            "product_type": "package",
+            "parent_id": 48,
+            "formatted_price": "529 ل.س"
+        },
+        "qty": 1,
+        "inputs": [
+            "121345"
+        ],
+        "params": [
+            "Player ID"
+        ],
+        "status": "pending",
+        "date": "Just Now"
+    },
+    {
+        "id": "89516",
+        "user_id": 917962584,
+        "product": {
+            "id": 838,
+            "name": "فالورانت 475 نقطة انتصار",
+            "description": "المنتج يعمل بشكل يدوي يحتاج قليل من الوقت ✔",
+            "price": 4.999644,
+            "params": [],
+            "category_name": "فالورانت عالمي",
+            "available": true,
+            "qty_values": null,
+            "product_type": "package",
+            "parent_id": 249,
+            "formatted_price": "589 ل.س"
+        },
+        "qty": 1,
+        "inputs": [],
+        "params": [],
+        "status": "pending",
+        "date": "2026-01-24 12:12 PM"
+    },
+    {
+        "id": "77355",
+        "user_id": 917962584,
+        "product": {
+            "id": 881,
+            "name": "كود 60 شدة",
+            "description": "يتم تسليم بشكل تلقائي ✨️يقبل تخزين لمدة سنة ✨️",
+            "price": 1.0133475,
+            "params": [],
+            "category_name": "اكواد ببجي",
+            "available": true,
+            "qty_values": null,
+            "product_type": "Package",
+            "parent_id": 147,
+            "rate": 1.0133475,
+            "formatted_price": "119 ل.س"
+        },
+        "qty": 1,
+        "inputs": [],
+        "params": [],
+        "status": "pending",
+        "date": "2026-01-25 08:35 PM"
+    }
+]

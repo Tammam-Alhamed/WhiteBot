@@ -1,0 +1,120 @@
+"""Admin dashboard handlers."""
+from aiogram import Router, types, F
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+import asyncio
+import config
+import services.settings as settings
+import services.database as database
+import data.keyboards as kb
+from bot.utils.helpers import smart_edit
+from states.admin import AdminState
+
+router = Router()
+
+
+@router.message(Command("admin"))
+async def open_admin(msg: types.Message):
+    """Open admin panel."""
+    if msg.from_user.id in config.ADMIN_IDS:
+        rate = settings.get_setting("exchange_rate")
+        maint = settings.get_setting("maintenance_mode")
+        status = "✅ مفعل" if maint else "❌ معطل"
+        
+        txt = (
+            f"👑 <b>لوحة الإدارة</b>\n"
+            f"💵 سعر الصرف: <b>{rate} ل.س</b>\n"
+            f"🛠 وضع الصيانة: <b>{status}</b>"
+        )
+        await msg.answer(txt, reply_markup=kb.admin_dashboard(), parse_mode="HTML")
+
+
+@router.callback_query(F.data == "admin_home")
+@router.callback_query(F.data == "admin_dashboard")
+async def admin_home(call: types.CallbackQuery, state: FSMContext):
+    """Show admin dashboard."""
+    await state.clear()
+
+    rate = settings.get_setting("exchange_rate")
+    maint = settings.get_setting("maintenance_mode")
+    status = "✅ مفعل" if maint else "❌ معطل"
+
+    txt = (
+        f"👑 <b>لوحة الإدارة</b>\n"
+        f"💵 سعر الصرف: <b>{rate} ل.س</b>\n"
+        f"🛠 وضع الصيانة: <b>{status}</b>"
+    )
+    await smart_edit(call, txt, kb.admin_dashboard())
+
+
+@router.callback_query(F.data == "close_admin")
+async def close_admin_panel(call: types.CallbackQuery, state: FSMContext):
+    """Close admin panel."""
+    await state.clear()
+    try:
+        await call.message.delete()
+    except:
+        await call.message.edit_text("✅ تم إغلاق اللوحة.")
+
+
+@router.callback_query(F.data == "admin_maintenance")
+async def toggle_maintenance(call: types.CallbackQuery, state: FSMContext):
+    """Toggle maintenance mode."""
+    current_status = settings.get_setting("maintenance_mode")
+    new_status = not current_status
+    settings.update_setting("maintenance_mode", new_status)
+    
+    msg = "تم تفعيل وضع الصيانة 🛠" if new_status else "تم تعطيل وضع الصيانة ✅"
+    await call.answer(msg)
+    
+    await admin_home(call, state)
+
+
+@router.callback_query(F.data == "admin_broadcast")
+async def ask_broadcast_message(call: types.CallbackQuery, state: FSMContext):
+    """Ask for broadcast message."""
+    cancel_kb = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="❌ إلغاء", callback_data="admin_home")]
+    ])
+    
+    await smart_edit(
+        call,
+        "📨 <b>إرسال رسالة للكل:</b>\n\nأرسل الآن الرسالة التي تريد نشرها (نص، صورة، فيديو... أي شيء).\nسيتم إرسالها لجميع المشتركين.",
+        cancel_kb
+    )
+    await state.set_state(AdminState.waiting_for_broadcast_msg)
+
+
+@router.message(AdminState.waiting_for_broadcast_msg)
+async def execute_broadcast(msg: types.Message, state: FSMContext):
+    """Execute broadcast to all users."""
+    
+    users = database.get_all_user_ids()
+    if not users:
+        await msg.answer("لا يوجد مستخدمين لإرسال الرسالة لهم!")
+        await state.clear()
+        return
+
+    status_msg = await msg.answer(f"⏳ جاري الإرسال إلى {len(users)} مستخدم...\nيرجى الانتظار وعدم إيقاف البوت.")
+    
+    sent_count = 0
+    blocked_count = 0
+    
+    for user_id in users:
+        try:
+            await msg.copy_to(chat_id=user_id)
+            sent_count += 1
+            await asyncio.sleep(0.05) 
+        except Exception as e:
+            blocked_count += 1
+    
+    report = (
+        f"✅ <b>تم انتهاء الحملة!</b>\n"
+        f"━━━━━━━━━━━━\n"
+        f"📨 تم الإرسال بنجاح: <b>{sent_count}</b>\n"
+        f"⛔ لم تصل (حظروا البوت): <b>{blocked_count}</b>\n"
+        f"👥 العدد الكلي: <b>{len(users)}</b>"
+    )
+    
+    await status_msg.edit_text(report, parse_mode="HTML", reply_markup=kb.back_to_admin())
+    await state.clear()
