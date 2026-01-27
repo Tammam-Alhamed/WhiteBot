@@ -337,7 +337,19 @@ async def process_proof_image(msg: types.Message, state: FSMContext):
     
     for aid in config.ADMIN_IDS:
         try:
-            await msg.bot.send_message(aid, admin_txt, reply_markup=markup, parse_mode="HTML")
+            if proof_image_id:
+                # Try sending as photo first
+                try:
+                    await msg.bot.send_photo(aid, proof_image_id, caption=admin_txt, reply_markup=markup, parse_mode="HTML")
+                except Exception:
+                    # Fallback to document if photo fails (e.g. file upload)
+                    try:
+                        await msg.bot.send_document(aid, proof_image_id, caption=admin_txt, reply_markup=markup, parse_mode="HTML")
+                    except:
+                        # Fallback to text only if both fail
+                        await msg.bot.send_message(aid, admin_txt, reply_markup=markup, parse_mode="HTML")
+            else:
+                await msg.bot.send_message(aid, admin_txt, reply_markup=markup, parse_mode="HTML")
         except:
             pass
 
@@ -348,16 +360,16 @@ async def skip_proof_image(msg: types.Message, state: FSMContext):
     """Skip proof image step."""
     if await state.get_state() != DepositState.waiting_for_proof:
         return
-    
+
     data = await state.get_data()
     txn_id = data.get('txn_id')
     amount = data.get('amount')
     method = data.get('method', 'syriatel')
     uid = msg.from_user.id
-    
+
     # Save deposit request without proof
     req = database.save_deposit_request(uid, method, txn_id, amount, None)
-    
+
     method_name = "سيريتيل كاش"
     if method == "sham_syp":
         method_name = "شام كاش (سوري)"
@@ -367,10 +379,10 @@ async def skip_proof_image(msg: types.Message, state: FSMContext):
         method_name = "USDT (BEP20)"
     elif method == "usdt_coinex":
         method_name = "CoinEx (Email)"
-    
+
     final_usd = data.get('final_usd', 0)
     final_syp = data.get('final_syp', 0)
-    
+
     await msg.answer(
         f"✅ <b>تم استلام الطلب!</b>\n"
         f"━━━━━━━━━━━━\n"
@@ -385,11 +397,11 @@ async def skip_proof_image(msg: types.Message, state: FSMContext):
         parse_mode="HTML"
     )
     await state.clear()
-    
+
     # Notify admins
     usd_methods = ["sham_usd", "usdt_bep20", "usdt_coinex"]
     curr_symbol = "$" if method in usd_methods else "ل.س"
-    
+
     admin_txt = (
         f"🔔 <b>إيداع جديد ({method_name})</b>\n"
         f"━━━━━━━━━━━━\n"
@@ -398,13 +410,13 @@ async def skip_proof_image(msg: types.Message, state: FSMContext):
         f"💵 الرصيد المضاف: <b>{final_usd:.2f} $</b>\n"
         f"🔢 العملية: <code>{txn_id}</code>"
     )
-    
+
     markup = types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text="✅ قبول", callback_data=f"approve_dep:{req['id']}")],
         [types.InlineKeyboardButton(text="❌ رفض", callback_data=f"reject_dep:{req['id']}")],
         [types.InlineKeyboardButton(text="📋 جميع الطلبات المعلقة", callback_data="admin_pending_all")]
     ])
-    
+
     for aid in config.ADMIN_IDS:
         try:
             await msg.bot.send_message(aid, admin_txt, reply_markup=markup, parse_mode="HTML")

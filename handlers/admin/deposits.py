@@ -105,16 +105,30 @@ async def view_deposit_details(call: types.CallbackQuery):
     # Show proof image if available
     if req.get('proof_image_id'):
         try:
-            await call.message.delete()
+            # Try sending as photo
             await call.message.answer_photo(
                 req['proof_image_id'],
                 caption=txt,
                 reply_markup=markup,
                 parse_mode="HTML"
             )
+            # Only delete the previous message if sending photo succeeded
+            await call.message.delete()
             return
-        except:
-            pass
+        except Exception:
+            try:
+                # Fallback: Try sending as document (if it was uploaded as file)
+                await call.message.answer_document(
+                    req['proof_image_id'],
+                    caption=txt,
+                    reply_markup=markup,
+                    parse_mode="HTML"
+                )
+                await call.message.delete()
+                return
+            except:
+                # If both fail, fall through to text-only display
+                pass
 
     await smart_edit(call, txt, markup)
 
