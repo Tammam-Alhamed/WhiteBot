@@ -4,6 +4,7 @@ from aiogram import Router, types, F
 from aiogram.types import FSInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 import config
+import services.database as database
 import data.keyboards as kb
 from bot.utils.helpers import smart_edit
 
@@ -27,6 +28,8 @@ def get_report_files(directory):
 @router.callback_query(F.data == "admin_reports")
 async def show_reports_menu(call: types.CallbackQuery):
     """Show reports menu."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     keyboard = InlineKeyboardBuilder()
     keyboard.button(text="📅 التقارير اليومية", callback_data="admin_reports_daily")
     keyboard.button(text="📆 التقارير الأسبوعية", callback_data="admin_reports_weekly")
@@ -45,6 +48,8 @@ async def show_reports_menu(call: types.CallbackQuery):
 @router.callback_query(F.data == "admin_reports_daily")
 async def show_daily_reports(call: types.CallbackQuery):
     """Show list of daily reports."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     files = get_report_files(DAILY_DIR)
     
     if not files:
@@ -74,6 +79,8 @@ async def show_daily_reports(call: types.CallbackQuery):
 @router.callback_query(F.data == "admin_reports_weekly")
 async def show_weekly_reports(call: types.CallbackQuery):
     """Show list of weekly reports."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     files = get_report_files(WEEKLY_DIR)
     
     if not files:
@@ -103,6 +110,8 @@ async def show_weekly_reports(call: types.CallbackQuery):
 @router.callback_query(F.data == "admin_reports_monthly")
 async def show_monthly_reports(call: types.CallbackQuery):
     """Show list of monthly reports."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير ��افية.", show_alert=True)
     files = get_report_files(MONTHLY_DIR)
     
     if not files:
@@ -132,6 +141,8 @@ async def show_monthly_reports(call: types.CallbackQuery):
 @router.callback_query(F.data.startswith("download_daily:"))
 async def download_daily_report(call: types.CallbackQuery):
     """Download a daily report."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     filename = call.data.split(":", 1)[1]
     file_path = os.path.join(DAILY_DIR, filename)
     
@@ -149,6 +160,8 @@ async def download_daily_report(call: types.CallbackQuery):
 @router.callback_query(F.data.startswith("download_weekly:"))
 async def download_weekly_report(call: types.CallbackQuery):
     """Download a weekly report."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     filename = call.data.split(":", 1)[1]
     file_path = os.path.join(WEEKLY_DIR, filename)
     
@@ -166,6 +179,8 @@ async def download_weekly_report(call: types.CallbackQuery):
 @router.callback_query(F.data.startswith("download_monthly:"))
 async def download_monthly_report(call: types.CallbackQuery):
     """Download a monthly report."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     filename = call.data.split(":", 1)[1]
     file_path = os.path.join(MONTHLY_DIR, filename)
     

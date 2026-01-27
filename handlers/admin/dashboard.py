@@ -17,23 +17,30 @@ router = Router()
 @router.message(Command("admin"))
 async def open_admin(msg: types.Message):
     """Open admin panel."""
-    if msg.from_user.id in config.ADMIN_IDS:
-        rate = settings.get_setting("exchange_rate")
-        maint = settings.get_setting("maintenance_mode")
-        status = "✅ مفعل" if maint else "❌ معطل"
-        
-        txt = (
-            f"👑 <b>لوحة الإدارة</b>\n"
-            f"💵 سعر الصرف: <b>{rate} ل.س</b>\n"
-            f"🛠 وضع الصيانة: <b>{status}</b>"
-        )
-        await msg.answer(txt, reply_markup=kb.admin_dashboard(), parse_mode="HTML")
+    # التحقق من صلاحيات الأدمن (ديناميكي)
+    if not database.is_user_admin(msg.from_user.id):
+        return
+
+    rate = settings.get_setting("exchange_rate")
+    maint = settings.get_setting("maintenance_mode")
+    status = "✅ مفعل" if maint else "❌ معطل"
+    
+    txt = (
+        f"👑 <b>لوحة الإدارة</b>\n"
+        f"💵 سعر الصرف: <b>{rate} ل.س</b>\n"
+        f"🛠 وضع الصيانة: <b>{status}</b>"
+    )
+    await msg.answer(txt, reply_markup=kb.admin_dashboard(), parse_mode="HTML")
 
 
 @router.callback_query(F.data == "admin_home")
 @router.callback_query(F.data == "admin_dashboard")
 async def admin_home(call: types.CallbackQuery, state: FSMContext):
     """Show admin dashboard."""
+    # التحقق من صلاحيات الأدمن (ديناميكي)
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
+
     await state.clear()
 
     rate = settings.get_setting("exchange_rate")
@@ -51,6 +58,8 @@ async def admin_home(call: types.CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "close_admin")
 async def close_admin_panel(call: types.CallbackQuery, state: FSMContext):
     """Close admin panel."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     await state.clear()
     try:
         await call.message.delete()
@@ -61,6 +70,8 @@ async def close_admin_panel(call: types.CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "admin_maintenance")
 async def toggle_maintenance(call: types.CallbackQuery, state: FSMContext):
     """Toggle maintenance mode."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     current_status = settings.get_setting("maintenance_mode")
     new_status = not current_status
     settings.update_setting("maintenance_mode", new_status)
@@ -74,6 +85,8 @@ async def toggle_maintenance(call: types.CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "admin_broadcast")
 async def ask_broadcast_message(call: types.CallbackQuery, state: FSMContext):
     """Ask for broadcast message."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     cancel_kb = types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text="❌ إلغاء", callback_data="admin_home")]
     ])
@@ -90,6 +103,11 @@ async def ask_broadcast_message(call: types.CallbackQuery, state: FSMContext):
 async def execute_broadcast(msg: types.Message, state: FSMContext):
     """Execute broadcast to all users."""
     
+    # تأكيد أن المرسل ما زال أدمن
+    if not database.is_user_admin(msg.from_user.id):
+        await state.clear()
+        return
+
     users = database.get_all_user_ids()
     if not users:
         await msg.answer("لا يوجد مستخدمين لإرسال الرسالة لهم!")
@@ -124,6 +142,8 @@ async def execute_broadcast(msg: types.Message, state: FSMContext):
 @router.callback_query(F.data == "admin_pending_all")
 async def show_all_pending(call: types.CallbackQuery):
     """Show unified view of all pending requests (deposits + orders)."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     from services.database import load_json, DEPOSITS_FILE, PENDING_FILE
     
     # Get pending deposits

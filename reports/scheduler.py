@@ -6,6 +6,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from aiogram import Bot
 import config
+import services.database as database
 from .service import generate_daily_report, generate_weekly_report, generate_monthly_report
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,9 @@ async def send_report_to_admins(bot: Bot, file_path: str, report_type: str, date
         
         document = FSInputFile(file_path)
         
-        for admin_id in config.ADMIN_IDS:
+        # إرسال إلى كل الأدمن (السوبر + الأدمن من قاعدة البيانات)
+        admin_ids = database.get_all_admin_ids()
+        for admin_id in admin_ids:
             try:
                 await bot.send_document(
                     chat_id=admin_id,

@@ -23,7 +23,7 @@ async def my_orders(call: types.CallbackQuery):
             price_str = format_price(total_price)
             if o['status'] == 'completed':
                 icon = "✅"
-                status_txt = "مكتمل (يدوي)"
+                status_txt = "مكتمل"
             else:
                 icon = "⏳"
                 status_txt = "قيد التنفيذ"

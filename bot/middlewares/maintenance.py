@@ -3,6 +3,7 @@ from aiogram import BaseMiddleware, types
 from typing import Callable, Dict, Any, Awaitable
 import config
 import services.settings as settings
+import services.database as database
 
 
 class MaintenanceMiddleware(BaseMiddleware):
@@ -16,8 +17,8 @@ class MaintenanceMiddleware(BaseMiddleware):
     ) -> Any:
         user = data.get('event_from_user')
         
-        # If maintenance is enabled and user is not admin
-        if user and settings.get_setting("maintenance_mode") and user.id not in config.ADMIN_IDS:
+        # If maintenance is enabled and user is not admin (ديناميكي: من الكونفج + قاعدة البيانات)
+        if user and settings.get_setting("maintenance_mode") and not database.is_user_admin(user.id):
             if isinstance(event, types.CallbackQuery):
                 await event.answer("🛠 نعتذر، المتجر تحت الصيانة حالياً.", show_alert=True)
             elif isinstance(event, types.Message):

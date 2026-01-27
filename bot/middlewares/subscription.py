@@ -2,6 +2,7 @@
 from aiogram import BaseMiddleware, types
 from typing import Callable, Dict, Any, Awaitable
 import config
+import services.database as database
 
 
 class StrictSubscriptionMiddleware(BaseMiddleware):
@@ -16,8 +17,8 @@ class StrictSubscriptionMiddleware(BaseMiddleware):
         user = data.get('event_from_user')
         bot = data.get('bot')
         
-        # 1. Admin bypass
-        if user and user.id in config.ADMIN_IDS:
+        # 1. Admin bypass (ديناميكي: من الكونفج + قاعدة البيانات)
+        if user and database.is_user_admin(user.id):
             return await handler(event, data)
 
         # 2. Check subscription via Telegram API

@@ -285,7 +285,8 @@ async def finalize_order(msg: types.Message, state: FSMContext, bot: Bot):
             f"سيتم إشعارك عند الاكتمال."
         )
         await msg.answer(txt, parse_mode="HTML")
-        for aid in config.ADMIN_IDS:
+        from services.database import get_all_admin_ids
+        for aid in get_all_admin_ids():
             try:
                 await bot.send_message(aid, f"🚨 طلب معلق جديد من {uid}")
             except:

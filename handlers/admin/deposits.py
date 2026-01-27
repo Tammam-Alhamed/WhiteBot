@@ -13,6 +13,8 @@ router = Router()
 @router.callback_query(F.data == "admin_deposits")
 async def show_deposit_requests(call: types.CallbackQuery):
     """Show pending deposit requests."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     from services.database import load_json, DEPOSITS_FILE
     all_reqs = load_json(DEPOSITS_FILE)
 
@@ -44,6 +46,8 @@ async def show_deposit_requests(call: types.CallbackQuery):
 @router.callback_query(F.data.startswith("view_dep_req:"))
 async def view_deposit_details(call: types.CallbackQuery):
     """View deposit request details."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     req_id = call.data.split(":")[1]
     req = database.get_deposit_request(req_id)
 
@@ -136,6 +140,8 @@ async def view_deposit_details(call: types.CallbackQuery):
 @router.callback_query(F.data.startswith("approve_dep:"))
 async def approve_deposit(call: types.CallbackQuery):
     """Approve deposit request with commission."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     req_id = call.data.split(":")[1]
     req = database.get_deposit_request(req_id)
 
@@ -249,6 +255,8 @@ async def approve_deposit(call: types.CallbackQuery):
 @router.callback_query(F.data.startswith("reject_dep:"))
 async def reject_deposit(call: types.CallbackQuery):
     """Reject deposit request."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     req_id = call.data.split(":")[1]
     req = database.get_deposit_request(req_id)
 
@@ -293,6 +301,8 @@ async def reject_deposit(call: types.CallbackQuery):
 @router.callback_query(F.data == "bulk_approve_deposits")
 async def bulk_approve_deposits(call: types.CallbackQuery):
     """Bulk approve all pending deposits."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     from services.database import load_json, DEPOSITS_FILE
     all_reqs = load_json(DEPOSITS_FILE)
     pending = [r for r in all_reqs if r.get('status') == 'pending']
@@ -318,6 +328,8 @@ async def bulk_approve_deposits(call: types.CallbackQuery):
 @router.callback_query(F.data == "confirm_bulk_approve_deposits")
 async def confirm_bulk_approve_deposits(call: types.CallbackQuery):
     """Confirm and execute bulk approve."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     from services.database import load_json, DEPOSITS_FILE
     all_reqs = load_json(DEPOSITS_FILE)
     pending = [r for r in all_reqs if r.get('status') == 'pending']
@@ -377,6 +389,8 @@ async def confirm_bulk_approve_deposits(call: types.CallbackQuery):
 @router.callback_query(F.data == "bulk_reject_deposits")
 async def bulk_reject_deposits(call: types.CallbackQuery):
     """Bulk reject all pending deposits."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     from services.database import load_json, DEPOSITS_FILE
     all_reqs = load_json(DEPOSITS_FILE)
     pending = [r for r in all_reqs if r.get('status') == 'pending']
@@ -402,6 +416,8 @@ async def bulk_reject_deposits(call: types.CallbackQuery):
 @router.callback_query(F.data == "confirm_bulk_reject_deposits")
 async def confirm_bulk_reject_deposits(call: types.CallbackQuery):
     """Confirm and execute bulk reject."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     from services.database import load_json, DEPOSITS_FILE
     all_reqs = load_json(DEPOSITS_FILE)
     pending = [r for r in all_reqs if r.get('status') == 'pending']

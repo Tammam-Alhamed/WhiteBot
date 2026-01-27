@@ -200,6 +200,28 @@ def get_all_user_ids():
     return list(data.keys())
 
 
+def get_all_admin_ids():
+    """جلب قائمة بكل آيديات الأدمن (السوبر + الأدمن من قاعدة البيانات)"""
+    import config
+    data = load_json(DB_FILE)
+
+    admin_ids = set()
+
+    # 1) السوبر أدمن من الكونفج
+    for aid in config.ADMIN_IDS:
+        admin_ids.add(int(aid))
+
+    # 2) الأدمن من قاعدة البيانات
+    for uid, info in data.items():
+        if info.get("is_admin"):
+            try:
+                admin_ids.add(int(uid))
+            except:
+                continue
+
+    return list(admin_ids)
+
+
 
 
 # تأكد من وجود الملف
@@ -343,3 +365,32 @@ def register_user(user_id, name, username):
     # 3. حفظ البيانات
     with open(db_file, "w", encoding="utf-8") as f:
         json.dump(users, f, indent=4, ensure_ascii=False)
+
+
+# --- أضف هذه الدوال في services/database.py ---
+
+def set_admin(user_id, is_admin=True):
+    """تعيين أو إزالة مستخدم كأدمن"""
+    data = ensure_user_exists(user_id)
+    data[str(user_id)]["is_admin"] = is_admin
+    save_json(DB_FILE, data)
+
+
+def is_user_admin(user_id):
+    """التحقق هل المستخدم أدمن (سواء في الملف أو في config)"""
+    import config  # استيراد داخل الدالة لتجنب circular import
+
+    # 1. التحقق من قائمة الكونفج الأساسية
+    if user_id in config.ADMIN_IDS:
+        return True
+
+    # 2. التحقق من قاعدة البيانات
+    data = load_json(DB_FILE)
+    user = data.get(str(user_id), {})
+    return user.get("is_admin", False)
+
+
+def is_super_admin(user_id):
+    """التحقق هل المستخدم سوبر أدمن (من config فقط)"""
+    import config
+    return user_id in config.ADMIN_IDS

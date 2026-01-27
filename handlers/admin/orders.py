@@ -16,6 +16,8 @@ router = Router()
 @router.callback_query(F.data == "admin_orders")
 async def show_pending_orders(call: types.CallbackQuery):
     """Show pending orders list."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     # Import here to avoid circular import
     from services.database import load_json, PENDING_FILE
     orders = load_json(PENDING_FILE)
@@ -47,6 +49,8 @@ async def show_pending_orders(call: types.CallbackQuery):
 @router.callback_query(F.data.startswith("view_ord:"))
 async def view_order_details(call: types.CallbackQuery):
     """View order details."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     oid = call.data.split(":")[1]
     order = database.get_pending_order_by_id(oid)
 
@@ -90,6 +94,8 @@ async def view_order_details(call: types.CallbackQuery):
 @router.callback_query(F.data.startswith("retry_ord:"))
 async def retry_order_api(call: types.CallbackQuery):
     """Retry order via API."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     oid = call.data.split(":")[1]
     order = database.get_pending_order_by_id(oid)
     if not order:
@@ -103,7 +109,7 @@ async def retry_order_api(call: types.CallbackQuery):
     if success:
         if uuid_order:
             api_manager.save_uuid_locally(order['user_id'], uuid_order)
-        database.remove_pending_order(oid)
+        database.update_order_status(oid, "completed")
         try:
             await call.bot.send_message(
                 order['user_id'],
@@ -123,6 +129,8 @@ async def retry_order_api(call: types.CallbackQuery):
 @router.callback_query(F.data.startswith("manual_ord:"))
 async def mark_manual_done(call: types.CallbackQuery):
     """Mark order as manually completed."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     oid = call.data.split(":")[1]
     order = database.get_pending_order_by_id(oid)
     
@@ -145,13 +153,14 @@ async def mark_manual_done(call: types.CallbackQuery):
         print(f"⚠️ تعذر إرسال إشعار للعميل: {e}")
     
     await call.answer("تم الحفظ وإشعار العميل ✅")
-    database.remove_pending_order(oid)
     await show_pending_orders(call)
 
 
 @router.callback_query(F.data.startswith("ref_ord:"))
 async def refund_order_admin(call: types.CallbackQuery):
     """Refund order and notify user with balance transparency."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     oid = call.data.split(":")[1]
     order = database.get_pending_order_by_id(oid)
     
@@ -175,7 +184,7 @@ async def refund_order_admin(call: types.CallbackQuery):
     
     cost_syp = int(cost * rate)
     
-    database.remove_pending_order(oid)
+    database.update_order_status(oid, "rejected")
     
     try:
         # For PUBG orders, show price in USD only
@@ -219,7 +228,7 @@ async def refund_order_admin(call: types.CallbackQuery):
 @router.message(Command("get_cats"))
 async def export_categories(msg: types.Message):
     """Export categories list."""
-    if msg.from_user.id not in config.ADMIN_IDS:
+    if not database.is_user_admin(msg.from_user.id):
         return
 
     await msg.answer("⏳ جاري جلب الفئات من الموقع...")
@@ -247,6 +256,8 @@ async def export_categories(msg: types.Message):
 @router.callback_query(F.data == "bulk_approve_orders")
 async def bulk_approve_orders(call: types.CallbackQuery):
     """Bulk approve all pending orders."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     from services.database import load_json, PENDING_FILE
     all_orders = load_json(PENDING_FILE)
     pending = [o for o in all_orders if o.get('status') == 'pending']
@@ -273,6 +284,8 @@ async def bulk_approve_orders(call: types.CallbackQuery):
 @router.callback_query(F.data == "confirm_bulk_approve_orders")
 async def confirm_bulk_approve_orders(call: types.CallbackQuery):
     """Confirm and execute bulk approve."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     from services.database import load_json, PENDING_FILE
     all_orders = load_json(PENDING_FILE)
     pending = [o for o in all_orders if o.get('status') == 'pending']
@@ -295,7 +308,6 @@ async def confirm_bulk_approve_orders(call: types.CallbackQuery):
             except:
                 pass
             
-            database.remove_pending_order(order['id'])
             approved_count += 1
         except:
             pass
@@ -311,6 +323,8 @@ async def confirm_bulk_approve_orders(call: types.CallbackQuery):
 @router.callback_query(F.data == "bulk_reject_orders")
 async def bulk_reject_orders(call: types.CallbackQuery):
     """Bulk reject all pending orders."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     from services.database import load_json, PENDING_FILE
     all_orders = load_json(PENDING_FILE)
     pending = [o for o in all_orders if o.get('status') == 'pending']
@@ -337,6 +351,8 @@ async def bulk_reject_orders(call: types.CallbackQuery):
 @router.callback_query(F.data == "confirm_bulk_reject_orders")
 async def confirm_bulk_reject_orders(call: types.CallbackQuery):
     """Confirm and execute bulk reject."""
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيا�� غير كافية.", show_alert=True)
     from services.database import load_json, PENDING_FILE
     all_orders = load_json(PENDING_FILE)
     pending = [o for o in all_orders if o.get('status') == 'pending']
@@ -353,7 +369,7 @@ async def confirm_bulk_reject_orders(call: types.CallbackQuery):
             new_bal = database.add_balance(order['user_id'], cost)
             new_bal_syp = int(new_bal * rate)
             
-            database.remove_pending_order(order['id'])
+            database.update_order_status(order['id'], "rejected")
             rejected_count += 1
             
             # Notify user

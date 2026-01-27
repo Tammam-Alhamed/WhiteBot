@@ -335,7 +335,8 @@ async def process_proof_image(msg: types.Message, state: FSMContext):
         [types.InlineKeyboardButton(text="📋 جميع الطلبات المعلقة", callback_data="admin_pending_all")]
     ])
     
-    for aid in config.ADMIN_IDS:
+    from services.database import get_all_admin_ids
+    for aid in get_all_admin_ids():
         try:
             if proof_image_id:
                 # Try sending as photo first
@@ -417,7 +418,8 @@ async def skip_proof_image(msg: types.Message, state: FSMContext):
         [types.InlineKeyboardButton(text="📋 جميع الطلبات المعلقة", callback_data="admin_pending_all")]
     ])
 
-    for aid in config.ADMIN_IDS:
+    from services.database import get_all_admin_ids
+    for aid in get_all_admin_ids():
         try:
             await msg.bot.send_message(aid, admin_txt, reply_markup=markup, parse_mode="HTML")
         except:
