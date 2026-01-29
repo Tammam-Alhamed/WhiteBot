@@ -1,11 +1,13 @@
 {
     "917962584": {
-        "balance": 6.783936313559321,
+        "balance": 7.770588813559321,
         "banned": false,
         "name": "Tammam",
         "username": "tammam7941",
         "total_deposited": 0.423728813559322,
-        "is_admin": true
+        "is_admin": true,
+        "balance_syp": 268.0,
+        "total_deposited_syp": 0.0
     },
     "8238110323": {
         "balance": 100000256.62064803,
@@ -35,6 +37,8 @@
         "name": ".",
         "username": null,
         "total_deposited": 0.0,
-        "is_admin": false
+        "is_admin": false,
+        "balance_syp": 0.0,
+        "total_deposited_syp": 0.0
     }
 }

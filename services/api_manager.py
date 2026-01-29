@@ -4,15 +4,15 @@ import uuid
 import asyncio
 import zlib
 import json
-import os
+# import os  <-- لم يعد ضرورياً للتعامل مع الملفات
 
 # ✅ الاستيرادات الضرورية
 import services.settings as settings
+import services.database as database  # 🔄 استيراد قاعدة البيانات
 import data.mappings as mappings
 
 _products_cache = []
 _category_id_map = {}
-UUIDS_FILE = "user_uuids.json"
 
 
 # --- دالة تنظيف النصوص ---
@@ -68,10 +68,9 @@ def refresh_data():
 
                     # طباعة للتأكد (فقط لمنتجات ببجي أو إذا كان السعر أكبر من 0)
                     if "شدة" in name or "uc" in name.lower() or original_rate > 0:
-                        # سنطبع فقط أول 5 منتجات لتجنب الزحمة
                         pass
 
-                        # طباعة عينة واحدة للتأكد أن السعر لم يعد صفراً
+                # طباعة عينة واحدة للتأكد أن السعر لم يعد صفراً
                 sample = next((p for p in data if "شدة" in str(p.get('name'))), None)
                 if sample:
                     print(f"✅ عينة ناجحة: {sample['name']}")
@@ -95,6 +94,7 @@ def refresh_data():
         import traceback
         traceback.print_exc()
     return False
+
 
 def get_products_by_cat_id(short_id):
     if not _products_cache: refresh_data()
@@ -170,30 +170,59 @@ def check_orders_status(uuid_list):
     return []
 
 
+# 🔄 دالة مساعدة لضمان وجود جدول الطلبات الخارجية
+def ensure_uuids_table():
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS remote_orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT,
+        order_uuid TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+    conn.commit()
+    conn.close()
+
+
 def save_uuid_locally(user_id, order_uuid):
-    data = {}
-    if os.path.exists(UUIDS_FILE):
-        try:
-            with open(UUIDS_FILE, 'r') as f:
-                data = json.load(f)
-        except:
-            data = {}
+    """حفظ UUID في قاعدة البيانات وحذف القديم ليبقى آخر 20 فقط."""
+    ensure_uuids_table()
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
     uid = str(user_id)
-    if uid not in data: data[uid] = []
-    data[uid].insert(0, order_uuid)
-    data[uid] = data[uid][:20]
-    with open(UUIDS_FILE, 'w') as f:
-        json.dump(data, f)
+
+    # إضافة السجل الجديد
+    cursor.execute("INSERT INTO remote_orders (user_id, order_uuid) VALUES (?, ?)", (uid, str(order_uuid)))
+
+    # حذف السجلات الزائدة (الاحتفاظ بآخر 20)
+    # نحذف أي سجل لهذا المستخدم ليس ضمن آخر 20 سجل (مرتبة زمنياً)
+    cursor.execute("""
+        DELETE FROM remote_orders 
+        WHERE id NOT IN (
+            SELECT id FROM remote_orders 
+            WHERE user_id = ? 
+            ORDER BY created_at DESC 
+            LIMIT 20
+        ) AND user_id = ?
+    """, (uid, uid))
+
+    conn.commit()
+    conn.close()
 
 
 def get_user_uuids(user_id):
-    if not os.path.exists(UUIDS_FILE): return []
-    try:
-        with open(UUIDS_FILE, 'r') as f:
-            data = json.load(f)
-            return data.get(str(user_id), [])
-    except:
-        return []
+    """جلب قائمة UUIDs للمستخدم من قاعدة البيانات."""
+    ensure_uuids_table()
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT order_uuid FROM remote_orders WHERE user_id = ? ORDER BY created_at DESC", (str(user_id),))
+    rows = cursor.fetchall()
+    conn.close()
+
+    # استخراج القيم من الصفوف
+    return [row['order_uuid'] for row in rows]
 
 
 async def execute_order_dynamic(product_id, qty, inputs_list, param_names_list):

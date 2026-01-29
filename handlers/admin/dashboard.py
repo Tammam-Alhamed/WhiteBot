@@ -144,27 +144,28 @@ async def show_all_pending(call: types.CallbackQuery):
     """Show unified view of all pending requests (deposits + orders)."""
     if not database.is_user_admin(call.from_user.id):
         return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
-    from services.database import load_json, DEPOSITS_FILE, PENDING_FILE
-    
+
+    # 🔄 التغيير هنا: استخدام دوال قاعدة البيانات بدلاً من load_json
+
     # Get pending deposits
-    all_deposits = load_json(DEPOSITS_FILE)
+    all_deposits = database.get_all_deposit_requests()
     pending_deposits = [r for r in all_deposits if r.get('status') == 'pending']
-    
+
     # Get pending orders
-    all_orders = load_json(PENDING_FILE)
+    all_orders = database.get_all_orders()
     pending_orders = [o for o in all_orders if o.get('status') == 'pending']
-    
+
     total_pending = len(pending_deposits) + len(pending_orders)
-    
+
     if total_pending == 0:
         return await smart_edit(
             call,
             "✅ <b>لا يوجد طلبات معلقة حالياً.</b>",
             kb.admin_dashboard()
         )
-    
+
     keyboard = InlineKeyboardBuilder()
-    
+
     # Add deposit requests
     if pending_deposits:
         keyboard.button(text="━━ 💰 طلبات الإيداع ━━", callback_data="ignore")
@@ -173,17 +174,17 @@ async def show_all_pending(call: types.CallbackQuery):
             currency = "$" if req['method'] in usd_methods else "ل.س"
             btn_text = f"💰 {req['method']} | {req['amount']} {currency} | {req['user_id']}"
             keyboard.button(text=btn_text, callback_data=f"view_dep_req:{req['id']}")
-    
+
     # Add order requests
     if pending_orders:
         keyboard.button(text="━━ 📦 طلبات الشراء ━━", callback_data="ignore")
         for order in pending_orders[:10]:  # Limit to 10
             btn_text = f"📦 {order['product']['name']} | {order['id']}"
             keyboard.button(text=btn_text, callback_data=f"view_ord:{order['id']}")
-    
+
     keyboard.button(text="🔙 رجوع", callback_data="admin_home")
     keyboard.adjust(1)
-    
+
     txt = (
         f"📋 <b>جميع الطلبات المعلقة ({total_pending}):</b>\n"
         f"━━━━━━━━━━━━\n"
@@ -192,5 +193,5 @@ async def show_all_pending(call: types.CallbackQuery):
         f"━━━━━━━━━━━━\n"
         f"اضغط على الطلب لعرض التفاصيل."
     )
-    
+
     await smart_edit(call, txt, keyboard.as_markup())

@@ -18,10 +18,10 @@ async def show_pending_orders(call: types.CallbackQuery):
     """Show pending orders list."""
     if not database.is_user_admin(call.from_user.id):
         return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
-    # Import here to avoid circular import
-    from services.database import load_json, PENDING_FILE
-    orders = load_json(PENDING_FILE)
-    
+
+    # ✅ استخدام الدالة الجديدة
+    orders = database.get_all_orders()
+
     # Filter only pending orders
     pending_orders = [o for o in orders if o.get('status') == 'pending']
 
@@ -100,12 +100,12 @@ async def retry_order_api(call: types.CallbackQuery):
     order = database.get_pending_order_by_id(oid)
     if not order:
         return await call.answer("غير موجود!", show_alert=True)
-    
+
     await call.answer("⏳ جاري الاتصال...")
     success, res_msg, uuid_order, code = await api_manager.execute_order_dynamic(
         order['product']['id'], order['qty'], order['inputs'], order['params']
     )
-    
+
     if success:
         if uuid_order:
             api_manager.save_uuid_locally(order['user_id'], uuid_order)
@@ -133,12 +133,12 @@ async def mark_manual_done(call: types.CallbackQuery):
         return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     oid = call.data.split(":")[1]
     order = database.get_pending_order_by_id(oid)
-    
+
     if not order:
         return await call.answer("الطلب غير موجود")
 
     database.update_order_status(oid, "completed")
-    
+
     try:
         msg_text = (
             f"✅ <b>تحديث حالة الطلب #{oid}</b>\n"
@@ -151,7 +151,7 @@ async def mark_manual_done(call: types.CallbackQuery):
         await call.bot.send_message(chat_id=order['user_id'], text=msg_text, parse_mode="HTML")
     except Exception as e:
         print(f"⚠️ تعذر إرسال إشعار للعميل: {e}")
-    
+
     await call.answer("تم الحفظ وإشعار العميل ✅")
     await show_pending_orders(call)
 
@@ -163,31 +163,26 @@ async def refund_order_admin(call: types.CallbackQuery):
         return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     oid = call.data.split(":")[1]
     order = database.get_pending_order_by_id(oid)
-    
+
     if not order:
         return await call.answer("الطلب غير موجود")
 
     cost = float(order['product']['price']) * int(order['qty'])
     rate = settings.get_setting("exchange_rate")
-    
+
     # Check if PUBG order for currency display consistency
     category_name = order['product'].get('category_name', '')
     is_pubg = 'PUBG' in category_name or 'ببجي' in category_name
-    
-    # Get balance before refund
-    old_bal = database.get_balance(order['user_id'])
-    old_bal_syp = int(old_bal * rate)
-    
-    # Add refund
+
+    # Refund balance
     new_bal = database.add_balance(order['user_id'], cost)
     new_bal_syp = int(new_bal * rate)
-    
+
     cost_syp = int(cost * rate)
-    
+
     database.update_order_status(oid, "rejected")
-    
+
     try:
-        # For PUBG orders, show price in USD only
         if is_pubg:
             msg_text = (
                 f"❌ <b>تحديث حالة الطلب #{oid}</b>\n"
@@ -220,7 +215,7 @@ async def refund_order_admin(call: types.CallbackQuery):
         await call.bot.send_message(chat_id=order['user_id'], text=msg_text, parse_mode="HTML")
     except Exception as e:
         print(f"⚠️ تعذر إرسال إشعار للعميل: {e}")
-    
+
     await call.answer("تم الإلغاء وإشعار العميل ↩️")
     await show_pending_orders(call)
 
@@ -232,24 +227,24 @@ async def export_categories(msg: types.Message):
         return
 
     await msg.answer("⏳ جاري جلب الفئات من الموقع...")
-    
+
     api_manager.refresh_data()
-    
+
     cats = set()
     for p in api_manager._products_cache:
         c_name = p.get('category_name', '').strip()
         if c_name:
             cats.add(c_name)
-    
+
     if not cats:
         return await msg.answer("❌ لم يتم العثور على فئات!")
 
     report = "قائمة الفئات المتوفرة في الموقع:\n(انسخ الاسم وضعه في mappings.py)\n━━━━━━━━━━━━━━━━━━\n"
     for c in sorted(list(cats)):
         report += f"- {c}\n"
-        
+
     file = BufferedInputFile(report.encode("utf-8"), filename="categories.txt")
-    
+
     await msg.answer_document(file, caption="📂 هذه كل الألعاب والخدمات الموجودة في الموقع حالياً.")
 
 
@@ -258,19 +253,20 @@ async def bulk_approve_orders(call: types.CallbackQuery):
     """Bulk approve all pending orders."""
     if not database.is_user_admin(call.from_user.id):
         return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
-    from services.database import load_json, PENDING_FILE
-    all_orders = load_json(PENDING_FILE)
+
+    # ✅ استخدام الدالة الجديدة
+    all_orders = database.get_all_orders()
     pending = [o for o in all_orders if o.get('status') == 'pending']
-    
+
     if not pending:
         return await call.answer("لا يوجد طلبات معلقة", show_alert=True)
-    
+
     # Confirm action
     markup = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ تأكيد قبول الكل", callback_data="confirm_bulk_approve_orders")],
         [InlineKeyboardButton(text="❌ إلغاء", callback_data="admin_orders")]
     ])
-    
+
     await smart_edit(
         call,
         f"⚠️ <b>تأكيد العملية:</b>\n"
@@ -286,16 +282,17 @@ async def confirm_bulk_approve_orders(call: types.CallbackQuery):
     """Confirm and execute bulk approve."""
     if not database.is_user_admin(call.from_user.id):
         return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
-    from services.database import load_json, PENDING_FILE
-    all_orders = load_json(PENDING_FILE)
+
+    # ✅ استخدام الدالة الجديدة
+    all_orders = database.get_all_orders()
     pending = [o for o in all_orders if o.get('status') == 'pending']
-    
+
     approved_count = 0
-    
+
     for order in pending:
         try:
             database.update_order_status(order['id'], "completed")
-            
+
             # Notify user
             try:
                 await call.bot.send_message(
@@ -307,11 +304,11 @@ async def confirm_bulk_approve_orders(call: types.CallbackQuery):
                 )
             except:
                 pass
-            
+
             approved_count += 1
         except:
             pass
-    
+
     await smart_edit(
         call,
         f"✅ <b>تمت العملية!</b>\n"
@@ -325,19 +322,20 @@ async def bulk_reject_orders(call: types.CallbackQuery):
     """Bulk reject all pending orders."""
     if not database.is_user_admin(call.from_user.id):
         return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
-    from services.database import load_json, PENDING_FILE
-    all_orders = load_json(PENDING_FILE)
+
+    # ✅ استخدام الدالة الجديدة
+    all_orders = database.get_all_orders()
     pending = [o for o in all_orders if o.get('status') == 'pending']
-    
+
     if not pending:
         return await call.answer("لا يوجد طلبات معلقة", show_alert=True)
-    
+
     # Confirm action
     markup = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ تأكيد رفض الكل", callback_data="confirm_bulk_reject_orders")],
         [InlineKeyboardButton(text="❌ إلغاء", callback_data="admin_orders")]
     ])
-    
+
     await smart_edit(
         call,
         f"⚠️ <b>تأكيد العملية:</b>\n"
@@ -352,26 +350,27 @@ async def bulk_reject_orders(call: types.CallbackQuery):
 async def confirm_bulk_reject_orders(call: types.CallbackQuery):
     """Confirm and execute bulk reject."""
     if not database.is_user_admin(call.from_user.id):
-        return await call.answer("❌ صلاحيا�� غير كافية.", show_alert=True)
-    from services.database import load_json, PENDING_FILE
-    all_orders = load_json(PENDING_FILE)
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
+
+    # ✅ استخدام الدالة الجديدة
+    all_orders = database.get_all_orders()
     pending = [o for o in all_orders if o.get('status') == 'pending']
-    
+
     rate = settings.get_setting("exchange_rate")
     rejected_count = 0
-    
+
     for order in pending:
         try:
             cost = float(order['product']['price']) * int(order['qty'])
             cost_syp = int(cost * rate)
-            
+
             # Refund balance
             new_bal = database.add_balance(order['user_id'], cost)
             new_bal_syp = int(new_bal * rate)
-            
+
             database.update_order_status(order['id'], "rejected")
             rejected_count += 1
-            
+
             # Notify user
             try:
                 await call.bot.send_message(
@@ -392,7 +391,7 @@ async def confirm_bulk_reject_orders(call: types.CallbackQuery):
                 pass
         except:
             pass
-    
+
     await smart_edit(
         call,
         f"✅ <b>تمت العملية!</b>\n"

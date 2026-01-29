@@ -15,8 +15,9 @@ async def show_deposit_requests(call: types.CallbackQuery):
     """Show pending deposit requests."""
     if not database.is_user_admin(call.from_user.id):
         return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
-    from services.database import load_json, DEPOSITS_FILE
-    all_reqs = load_json(DEPOSITS_FILE)
+
+    # ✅ استخدام الدالة الجديدة من قاعدة البيانات
+    all_reqs = database.get_all_deposit_requests()
 
     pending = [r for r in all_reqs if r.get('status') == 'pending']
 
@@ -131,7 +132,6 @@ async def view_deposit_details(call: types.CallbackQuery):
                 await call.message.delete()
                 return
             except:
-                # If both fail, fall through to text-only display
                 pass
 
     await smart_edit(call, txt, markup)
@@ -161,9 +161,7 @@ async def approve_deposit(call: types.CallbackQuery):
     # Calculate deposit amounts
     if method in usd_methods:
         deposit_usd = amount
-        deposit_syp = int(amount * rate)
     else:
-        deposit_syp = int(amount)
         deposit_usd = amount / rate
 
     # Apply commission
@@ -171,17 +169,13 @@ async def approve_deposit(call: types.CallbackQuery):
     final_usd = deposit_usd - commission_amount
     final_syp = int(round(final_usd * rate))
 
-    # Get current balance before adding
-    old_bal = database.get_balance(req['user_id'])
-
     # Add balance (mark as deposit for statistics)
     new_bal = database.add_balance(req['user_id'], final_usd, is_deposit=True)
     database.remove_deposit_request(req_id)
 
     new_bal_syp = int(round(new_bal * rate))
 
-    # --- FIX START: Handle Photo vs Text Message editing ---
-    # Determine the current text content (from caption if photo, or text if message)
+    # --- Handle Photo vs Text Message editing ---
     current_content = call.message.caption if call.message.caption else (call.message.text or "")
 
     new_status_text = (
@@ -202,7 +196,6 @@ async def approve_deposit(call: types.CallbackQuery):
             reply_markup=None,
             parse_mode="HTML"
         )
-    # --- FIX END ---
 
     method_name = method.replace('_', ' ').upper()
     if method == "syriatel":
@@ -221,9 +214,13 @@ async def approve_deposit(call: types.CallbackQuery):
         f"━━━━━━━━━━━━\n"
         f"💳 <b>الطريقة:</b> {method_name}\n"
         f"📥 <b>المبلغ المرسل:</b>\n"
-        f"🇸🇾 {deposit_syp:,} ل.س\n"
-        f"🇺🇸 {deposit_usd:.2f} $\n\n"
+        f"🇸🇾 {int(amount * rate):,} ل.س\n" if method in usd_methods else f"🇸🇾 {int(amount):,} ل.س\n"
     )
+
+    if method in usd_methods:
+        user_msg += f"🇺🇸 {amount:.2f} $\n\n"
+    else:
+        user_msg += f"🇺🇸 {deposit_usd:.2f} $\n\n"
 
     if commission > 0:
         user_msg += (
@@ -265,7 +262,7 @@ async def reject_deposit(call: types.CallbackQuery):
 
     database.remove_deposit_request(req_id)
 
-    # --- FIX START: Handle Photo vs Text Message editing ---
+    # --- Handle Photo vs Text Message editing ---
     current_content = call.message.caption if call.message.caption else (call.message.text or "")
 
     new_status_text = (
@@ -285,7 +282,6 @@ async def reject_deposit(call: types.CallbackQuery):
             reply_markup=None,
             parse_mode="HTML"
         )
-    # --- FIX END ---
 
     try:
         await call.bot.send_message(
@@ -303,8 +299,9 @@ async def bulk_approve_deposits(call: types.CallbackQuery):
     """Bulk approve all pending deposits."""
     if not database.is_user_admin(call.from_user.id):
         return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
-    from services.database import load_json, DEPOSITS_FILE
-    all_reqs = load_json(DEPOSITS_FILE)
+
+    # ✅ استخدام الدالة الجديدة
+    all_reqs = database.get_all_deposit_requests()
     pending = [r for r in all_reqs if r.get('status') == 'pending']
 
     if not pending:
@@ -330,15 +327,15 @@ async def confirm_bulk_approve_deposits(call: types.CallbackQuery):
     """Confirm and execute bulk approve."""
     if not database.is_user_admin(call.from_user.id):
         return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
-    from services.database import load_json, DEPOSITS_FILE
-    all_reqs = load_json(DEPOSITS_FILE)
+
+    # ✅ استخدام الدالة الجديدة
+    all_reqs = database.get_all_deposit_requests()
     pending = [r for r in all_reqs if r.get('status') == 'pending']
 
     rate = settings.get_setting("exchange_rate")
     commission = settings.get_deposit_commission()
     usd_methods = ["sham_usd", "usdt_bep20", "usdt_coinex"]
 
-    # Fix: Protect against division by zero
     if rate == 0:
         rate = 1
 
@@ -391,8 +388,9 @@ async def bulk_reject_deposits(call: types.CallbackQuery):
     """Bulk reject all pending deposits."""
     if not database.is_user_admin(call.from_user.id):
         return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
-    from services.database import load_json, DEPOSITS_FILE
-    all_reqs = load_json(DEPOSITS_FILE)
+
+    # ✅ استخدام الدالة الجديدة
+    all_reqs = database.get_all_deposit_requests()
     pending = [r for r in all_reqs if r.get('status') == 'pending']
 
     if not pending:
@@ -418,8 +416,9 @@ async def confirm_bulk_reject_deposits(call: types.CallbackQuery):
     """Confirm and execute bulk reject."""
     if not database.is_user_admin(call.from_user.id):
         return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
-    from services.database import load_json, DEPOSITS_FILE
-    all_reqs = load_json(DEPOSITS_FILE)
+
+    # ✅ استخدام الدالة الجديدة
+    all_reqs = database.get_all_deposit_requests()
     pending = [r for r in all_reqs if r.get('status') == 'pending']
 
     rejected_count = 0
