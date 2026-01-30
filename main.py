@@ -12,6 +12,7 @@ from handlers.admin import router as admin_router
 
 # Import report scheduler
 from reports.scheduler import setup_scheduler, shutdown_scheduler
+from services.background_tasks import check_pending_orders_task, auto_refresh_products_task
 
 # Import Database Init
 from services.database import init_db
@@ -43,7 +44,15 @@ async def main():
     # Apply subscription middleware
     dp.message.middleware(StrictSubscriptionMiddleware())
     dp.callback_query.middleware(StrictSubscriptionMiddleware())
+    asyncio.create_task(check_pending_orders_task(bot))
+    print("🚀 Bot started with background tasks...")
+    # ✅ تشغيل خدمة مراقبة الطلبات
+    asyncio.create_task(check_pending_orders_task(bot))
 
+    # ✅ تشغيل خدمة تحديث المنتجات التلقائي (الجديدة)
+    asyncio.create_task(auto_refresh_products_task())
+
+    print("🚀 Bot started with background tasks...")
     # 3. Setup report scheduler
     setup_scheduler(bot)
     print("📊 Report scheduler started")

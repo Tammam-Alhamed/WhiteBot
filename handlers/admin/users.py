@@ -4,10 +4,12 @@ from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 import services.database as database
 import services.settings as settings
+import services.api_manager as api_manager
 import data.keyboards as kb
 from bot.utils.helpers import smart_edit
 from states.admin import AdminState
 import html
+import asyncio  # ✅ ضروري جداً
 
 router = Router()
 
@@ -16,6 +18,7 @@ async def users_menu_main(call: types.CallbackQuery):
     """Show user management menu."""
     if not database.is_user_admin(call.from_user.id):
         return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
+
     markup = types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text="📜 عرض كل المستخدمين", callback_data="list_users:0")],
         [types.InlineKeyboardButton(text="🔍 بحث بواسطة ID", callback_data="search_user_id")],
@@ -34,7 +37,9 @@ async def list_all_users(call: types.CallbackQuery):
     except:
         page = 0
 
-    users = database.get_all_users_list()
+    # تسريع جلب المستخدمين
+    users = await asyncio.to_thread(database.get_all_users_list)
+
     if not users:
         return await call.answer("لا يوجد مستخدمين!", show_alert=True)
 
@@ -85,7 +90,9 @@ async def search_result(msg: types.Message, state: FSMContext):
         return
     try:
         uid = msg.text.strip()
-        user_data = database.get_user_data(uid)
+        # تسريع البحث
+        user_data = await asyncio.to_thread(database.get_user_data, uid)
+
         if not user_data:
              await msg.answer("❌ المستخدم غير موجود.", reply_markup=kb.back_to_admin())
              return
@@ -113,7 +120,8 @@ async def manage_user_profile(call: types.CallbackQuery):
 async def open_user_control(msg_or_call, user_id, is_edit=False):
     """Show user control panel."""
     try:
-        data = database.get_user_data(user_id)
+        # تسريع جلب البيانات
+        data = await asyncio.to_thread(database.get_user_data, user_id)
         markup = kb.back_to_admin()
 
         if not data:
@@ -147,12 +155,17 @@ async def open_user_control(msg_or_call, user_id, is_edit=False):
         )
 
         keyboard = InlineKeyboardBuilder()
+
+        # الصف الأول: إضافة وخصم
         keyboard.row(
             types.InlineKeyboardButton(text="➕ إضافة رصيد", callback_data=f"admin_add_bal:{user_id}"),
             types.InlineKeyboardButton(text="➖ خصم رصيد", callback_data=f"admin_sub_bal:{user_id}")
         )
+
+        # الصف الثاني: السجل
         keyboard.row(types.InlineKeyboardButton(text="📜 سجل الطلبات", callback_data=f"admin_history:{user_id}"))
 
+        # الصف الثالث: الحظر والترقية
         ban_txt = "🟢 فك الحظر" if data.get('banned') else "⛔ حظر"
         ban_act = f"admin_unban:{user_id}" if data.get('banned') else f"admin_ban:{user_id}"
 
@@ -178,16 +191,14 @@ async def open_user_control(msg_or_call, user_id, is_edit=False):
         pass
 
 
-# ==================== قسم إضافة الرصيد ====================
+# ==================== إضافة الرصيد (محدث) ====================
 
-# 1. عند الضغط على زر إضافة رصيد
 @router.callback_query(F.data.startswith("admin_add_bal:"))
 async def ask_balance_currency_step(call: types.CallbackQuery):
     if not database.is_user_admin(call.from_user.id):
         return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
 
     user_id = call.data.split(":")[1]
-
     await smart_edit(
         call,
         "💱 <b>اختر عملة الإضافة:</b>\n"
@@ -195,7 +206,6 @@ async def ask_balance_currency_step(call: types.CallbackQuery):
         kb.admin_balance_currency(user_id)
     )
 
-# 2. بعد اختيار العملة للإضافة
 @router.callback_query(F.data.startswith("add_bal_curr:"))
 async def ask_balance_amount_final(call: types.CallbackQuery, state: FSMContext):
     parts = call.data.split(":")
@@ -223,7 +233,6 @@ async def ask_balance_amount_final(call: types.CallbackQuery, state: FSMContext)
     )
     await state.set_state(AdminState.waiting_for_balance_amount)
 
-# 3. تنفيذ الإضافة
 @router.message(AdminState.waiting_for_balance_amount)
 async def perform_add_balance(msg: types.Message, state: FSMContext):
     if not database.is_user_admin(msg.from_user.id):
@@ -249,9 +258,10 @@ async def perform_add_balance(msg: types.Message, state: FSMContext):
         msg_details = f"({amount_input:,} ل.س)"
     else:
         final_usd_amount = amount_input
-        msg_details = ""
+        msg_details = "($)"
 
-    new_bal = database.add_balance(user_id, final_usd_amount)
+    # تسريع الإضافة
+    new_bal = await asyncio.to_thread(database.add_balance, user_id, final_usd_amount)
 
     await msg.answer(
         f"✅ <b>تمت الإضافة بنجاح!</b>\n"
@@ -266,9 +276,9 @@ async def perform_add_balance(msg: types.Message, state: FSMContext):
     try:
         await msg.bot.send_message(
             user_id,
-            f"➕ تم إضافة رصيد لحسابك\n"
-            f"المبلغ: {final_usd_amount:.2f}$\n"
-            f"رصيدك الحالي: {new_bal:.2f}$"
+            f"➕ <b>تم إضافة رصيد لحسابك</b>\n"
+            f"المبلغ: <b>{final_usd_amount:.2f}$</b>\n"
+            f"رصيدك الحالي: <b>{new_bal:.2f}$</b>"
         )
     except:
         pass
@@ -276,17 +286,14 @@ async def perform_add_balance(msg: types.Message, state: FSMContext):
     await state.clear()
 
 
-# ==================== قسم خصم الرصيد (الجديد) ====================
+# ==================== خصم الرصيد (محدث) ====================
 
-# 1. عند الضغط على زر خصم رصيد (نسأل عن العملة)
 @router.callback_query(F.data.startswith("admin_sub_bal:"))
 async def ask_sub_balance_currency_step(call: types.CallbackQuery):
     if not database.is_user_admin(call.from_user.id):
         return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
 
     user_id = call.data.split(":")[1]
-
-    # استخدام الدالة الجديدة للخصم
     await smart_edit(
         call,
         "💱 <b>اختر عملة الخصم:</b>\n"
@@ -294,7 +301,6 @@ async def ask_sub_balance_currency_step(call: types.CallbackQuery):
         kb.admin_sub_balance_currency(user_id)
     )
 
-# 2. بعد اختيار العملة للخصم
 @router.callback_query(F.data.startswith("sub_bal_curr:"))
 async def ask_sub_balance_amount_final(call: types.CallbackQuery, state: FSMContext):
     parts = call.data.split(":")
@@ -320,10 +326,8 @@ async def ask_sub_balance_amount_final(call: types.CallbackQuery, state: FSMCont
         f"أرسل القيمة المراد خصمها الآن (أرقام فقط).{rate_info}",
         back_btn
     )
-    # استخدام الحالة الجديدة للخصم
     await state.set_state(AdminState.waiting_for_sub_balance_amount)
 
-# 3. تنفيذ الخصم
 @router.message(AdminState.waiting_for_sub_balance_amount)
 async def perform_sub_balance(msg: types.Message, state: FSMContext):
     if not database.is_user_admin(msg.from_user.id):
@@ -349,11 +353,13 @@ async def perform_sub_balance(msg: types.Message, state: FSMContext):
         msg_details = f"({amount_input:,} ل.س)"
     else:
         final_usd_amount = amount_input
-        msg_details = ""
+        msg_details = "($)"
 
-    # تنفيذ الخصم
-    if database.deduct_balance(user_id, final_usd_amount):
-        new_bal = database.get_balance(user_id)
+    # تنفيذ الخصم بسرعة
+    success = await asyncio.to_thread(database.deduct_balance, user_id, final_usd_amount)
+
+    if success:
+        new_bal = await asyncio.to_thread(database.get_balance, user_id)
 
         await msg.answer(
             f"✅ <b>تم الخصم بنجاح!</b>\n"
@@ -363,13 +369,12 @@ async def perform_sub_balance(msg: types.Message, state: FSMContext):
             parse_mode="HTML"
         )
 
-        # إشعار المستخدم
         try:
             await msg.bot.send_message(
                 user_id,
-                f"➖ تم خصم رصيد من حسابك\n"
-                f"المبلغ: {final_usd_amount:.2f}$\n"
-                f"رصيدك الحالي: {new_bal:.2f}$"
+                f"➖ <b>تم خصم رصيد من حسابك</b>\n"
+                f"المبلغ: <b>{final_usd_amount:.2f}$</b>\n"
+                f"رصيدك الحالي: <b>{new_bal:.2f}$</b>"
             )
         except:
             pass
@@ -380,7 +385,7 @@ async def perform_sub_balance(msg: types.Message, state: FSMContext):
     await state.clear()
 
 
-# ==================== دوال إدارية أخرى ====================
+# ==================== الإجراءات الأخرى ====================
 
 @router.callback_query(F.data.startswith("promote_admin:"))
 async def promote_user_to_admin(call: types.CallbackQuery):
@@ -425,27 +430,53 @@ async def unban_user_exec(call: types.CallbackQuery):
     await call.answer("تم فك الحظر ✅")
     await open_user_control(call.message, uid, is_edit=True)
 
+# 🔥🔥 هنا تم إصلاح عرض السجل 🔥🔥
 @router.callback_query(F.data.startswith("admin_history:"))
 async def user_history(call: types.CallbackQuery):
     if not database.is_user_admin(call.from_user.id):
         return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
+
+    # إشعار للمستخدم بأننا نعمل
+    await call.answer("⏳ جاري جلب السجل...")
+
     try:
         uid = call.data.split(":")[1]
         txt = f"📜 <b>سجل طلبات المستخدم {uid}:</b>\n━━━━━━━━━━━━\n"
         has_orders = False
 
-        local_orders = database.get_user_local_orders(uid)
+        # 1. الطلبات المحلية (في الخلفية)
+        local_orders = await asyncio.to_thread(database.get_user_local_orders, uid)
         if local_orders:
             has_orders = True
-            txt += "<b>📦 الطلبات المحلية:</b>\n"
+            txt += "<b>📥 طلبات محلية:</b>\n"
             for o in local_orders[:10]:
                 status_icon = "✅" if o['status'] == 'completed' else "⏳"
                 price_disp = o['product'].get('price', 0)
                 txt += f"{status_icon} <b>{o['product'].get('name', 'منتج')}</b>\n🔢 {o['id']} | 💰 {price_disp}$\n----------------\n"
 
+        # 2. طلبات API (في الخلفية + معالجة الأخطاء)
+        try:
+            uuids = await asyncio.to_thread(api_manager.get_user_uuids, uid)
+            if uuids:
+                # نفحص آخر 5 فقط لتسريع الاستجابة
+                stats = await asyncio.to_thread(api_manager.check_orders_status, uuids[:5])
+                if stats:
+                    has_orders = True
+                    txt += "\n<b>🌐 طلبات API (الموقع):</b>\n"
+                    for s in stats:
+                        icon = "✅" if s.get('status') in ['completed', 'Success'] else "⏳"
+                        p_name = s.get('product_name', 'Unknown')
+                        price = s.get('price', 0)
+                        txt += f"{icon} {p_name}\n💰 {price}$\n----------------\n"
+        except Exception as e:
+            # إذا فشل الاتصال بالموقع، لا نوقف البوت، بل نظهر المحلية فقط
+            print(f"⚠️ Failed to fetch API orders: {e}")
+            txt += "\n⚠️ تعذر جلب سجلات الموقع حالياً.\n"
+
         if not has_orders: txt += "📂 السجل فارغ"
+
         back_markup = types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="🔙 رجوع", callback_data=f"mang_usr:{uid}")]])
         await smart_edit(call, txt, back_markup)
     except Exception as e:
         print(f"Error in history: {e}")
-        await call.answer("خطأ في السجل", show_alert=True)
+        await call.answer("حدث خطأ أثناء جلب السجل", show_alert=True)

@@ -76,8 +76,6 @@ async def init_buy(call: types.CallbackQuery, state: FSMContext):
 
     cancel_markup = kb.cancel_or_back_btn(back_target)
 
-    # ⚠️ التعديل الهام هنا: استخدام smart_edit بدلاً من delete+answer
-
     if prod.get('product_type') == "amount":
         qv = prod.get('qty_values', {})
         await state.update_data(min_q=qv.get('min', 1), max_q=qv.get('max', 100000))
@@ -87,7 +85,6 @@ async def init_buy(call: types.CallbackQuery, state: FSMContext):
         await smart_edit(call, msg_text, cancel_markup)
 
     elif not prod.get('params'):
-        # هنا نحذف لأننا سننشيء عملية جديدة وقد لا يكون هناك رسالة لتعديلها بعد انتهاء العملية
         await call.message.delete()
         await finalize_order(call.message, state, call.bot)
 
@@ -97,13 +94,8 @@ async def init_buy(call: types.CallbackQuery, state: FSMContext):
         await smart_edit(call, msg_text, cancel_markup)
 
 
-# باقي الدوال (process_qty, process_inp, finalize_order) تبقى كما هي دون تغيير
-# ... (تكملة الملف كما هو عندك) ...
-# ...
 @router.message(ShopState.waiting_for_quantity)
 async def process_qty(msg: types.Message, state: FSMContext):
-    # ... (نفس الكود القديم) ...
-    # فقط تأكد أنك نسخت باقي الملف كما هو
     if not msg.text:
         return await msg.answer("❌ يرجى إرسال الكمية كرقم.")
 
@@ -180,24 +172,17 @@ async def process_inp(msg: types.Message, state: FSMContext):
                 reply_markup=cancel_markup,
                 parse_mode="HTML"
             )
-        if len(user_input) < 6:
+        if len(user_input) < 5: # Changed from 6 to 5 for flexibility
             return await msg.answer(
                 "❌ <b>خطأ في الإدخال:</b>\n"
-                f"معرف اللاعب قصير جداً. يجب أن يكون 6 أرقام على الأقل.\n"
+                f"معرف اللاعب قصير جداً.\n"
                 f"يرجى المحاولة مرة أخرى:",
                 reply_markup=cancel_markup,
                 parse_mode="HTML"
             )
     elif 'user' in current_param.lower() or 'username' in current_param.lower():
-        if not user_input.startswith('@'):
-            return await msg.answer(
-                "❌ <b>خطأ في الإدخال:</b>\n"
-                f"اسم المستخدم يجب أن يبدأ بـ @\n"
-                f"مثال: <code>@username</code>\n"
-                f"يرجى المحاولة مرة أخرى:",
-                reply_markup=cancel_markup,
-                parse_mode="HTML"
-            )
+        # بعض الخدمات تقبل يوزر بدون @، لذا سنزيل الشرط الصارم
+        pass
 
     inputs = d['collected']
     inputs.append(user_input)
@@ -219,16 +204,11 @@ async def process_inp(msg: types.Message, state: FSMContext):
 async def finalize_order(msg: types.Message, state: FSMContext, bot: Bot):
     d = await state.get_data()
     uid = d.get('real_user_id', msg.from_user.id)
-    if uid == bot.id:
-        uid = msg.chat.id
 
     prod, qty = d['prod'], d['qty']
     total = float(prod['price']) * qty
     rate = settings.get_setting("exchange_rate")
     total_syp = int(total * rate)
-
-    old_bal = database.get_balance(uid)
-    old_bal_syp = int(old_bal * rate)
 
     if not database.deduct_balance(uid, total):
         await msg.answer(
@@ -244,12 +224,14 @@ async def finalize_order(msg: types.Message, state: FSMContext, bot: Bot):
 
     await msg.answer("⏳ جاري إرسال الطلب للمزود...")
     ok, res, uuid, code = await api_manager.execute_order_dynamic(
-        prod['id'], qty, d['collected'], d['params']
+        prod['id'], qty, d['collected'], d['params'], uid
     )
 
     if ok:
-        if uuid:
-            api_manager.save_uuid_locally(uid, uuid)
+        # ✅ 1. تم الحفظ تلقائياً في api_manager
+        # (تم حذف السطر الذي كان يسبب الخطأ هنا)
+
+        # ✅ 2. رسالة نجاح للزبون
         txt = (
             f"✅ <b>تم استلام طلبك بنجاح!</b>\n"
             f"━━━━━━━━━━━━\n"
@@ -267,7 +249,25 @@ async def finalize_order(msg: types.Message, state: FSMContext, bot: Bot):
         )
         await msg.answer(txt, parse_mode="HTML")
 
+        # 🔥🔥 3. إرسال إشعار للأدمن (هذا الجزء كان مفقوداً) 🔥🔥
+        from services.database import get_all_admin_ids
+        admin_msg = (
+            f"🚀 <b>طلب جديد (عبر API)</b>\n"
+            f"👤 المستخدم: <code>{uid}</code>\n"
+            f"📦 المنتج: <b>{prod['name']}</b>\n"
+            f"🔢 الكمية: {qty}\n"
+            f"💰 السعر: {total:.2f} $\n"
+            f"🆔 رقم الطلب: <code>{res}</code>\n"
+            f"✅ الحالة: تم الإرسال للموقع بنجاح"
+        )
+        for aid in get_all_admin_ids():
+            try:
+                await bot.send_message(aid, admin_msg, parse_mode="HTML")
+            except:
+                pass
+
     elif code == 100:
+        # حالة الرصيد غير كافٍ في الموقع -> تحويل لطلب معلق
         lid = database.save_pending_order(uid, prod, qty, d['collected'], d['params'])
         txt = (
             f"⏳ <b>الطلب قيد المعالجة (Processing)</b>\n"
@@ -285,15 +285,18 @@ async def finalize_order(msg: types.Message, state: FSMContext, bot: Bot):
             f"سيتم إشعارك عند الاكتمال."
         )
         await msg.answer(txt, parse_mode="HTML")
+
+        # إشعار للأدمن بالطلب المعلق
         from services.database import get_all_admin_ids
         for aid in get_all_admin_ids():
             try:
-                await bot.send_message(aid, f"🚨 طلب معلق جديد من {uid}")
+                await bot.send_message(aid, f"🚨 <b>طلب معلق جديد (يحتاج شحن الموقع)</b>\nمن: {uid}\nرقم: {lid}", parse_mode="HTML")
             except:
                 pass
     else:
+        # فشل (خطأ آخر) -> استرجاع الرصيد
         database.add_balance(uid, total)
-        await msg.answer(f"❌ فشل: {res}\n✅ تم استرجاع الرصيد", parse_mode="HTML")
+        await msg.answer(f"❌ فشل تنفيذ الطلب: {res}\n✅ تم استرجاع الرصيد لمحفظتك.", parse_mode="HTML")
 
     await state.clear()
     await msg.answer("القائمة الرئيسية:", reply_markup=kb.main_menu())

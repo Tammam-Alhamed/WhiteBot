@@ -8,11 +8,14 @@ class AdminState(StatesGroup):
     waiting_for_commission = State()  # لعمولة الإيداع
     waiting_for_user_id = State()     # للبحث عن مستخدم
 
-    # ✅ الحالات الجديدة للإضافة والخصم
+    # ✅ الحالات الجديدة (تأكد من وجودها)
     waiting_for_user_search = State()
     waiting_for_balance_amount = State()      # لإضافة الرصيد
-    waiting_for_sub_balance_amount = State()  # لخصم الرصيد (الجديدة)
+    waiting_for_sub_balance_amount = State()  # لخصم الرصيد
 
-    waiting_for_amount_add = State()  # (لم تعد مستخدمة لكن نتركها للاحتياط)
+    # ✅ الحالة المسؤولة عن البحث عن الطلب (كانت ناقصة غالباً)
+    waiting_for_order_id = State()
+
+    waiting_for_amount_add = State()  # (قديمة)
     waiting_for_broadcast_msg = State() # للإرسال الجماعي
     waiting_for_category_rename = State()  # لإعادة تسمية الفئة

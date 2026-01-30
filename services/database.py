@@ -34,6 +34,20 @@ def init_db():
     )
     ''')
 
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS api_orders (
+        uuid TEXT PRIMARY KEY,
+        user_id INTEGER,
+        order_id TEXT,
+        product_name TEXT,
+        price REAL,
+        status TEXT DEFAULT 'pending',
+        notified INTEGER DEFAULT 0,
+        code TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+
     # Orders Table
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS orders (
@@ -544,3 +558,108 @@ def is_user_admin(user_id):
 
 def is_super_admin(user_id):
     return user_id in config.ADMIN_IDS
+
+
+
+def init_api_orders_table():
+    """إنشاء جدول تتبع طلبات API إذا لم يكن موجوداً"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS api_orders (
+        uuid TEXT PRIMARY KEY,
+        user_id TEXT,
+        order_id TEXT,
+        product_name TEXT,
+        price REAL,
+        status TEXT,
+        notified INTEGER DEFAULT 0,
+        code TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+    conn.commit()
+    conn.close()
+
+def log_api_order(user_id, uuid, product_name, price, status="pending", order_id=None):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        init_api_orders_table()
+        # هنا التعديل المهم: إضافة order_id
+        cursor.execute('''
+            INSERT OR IGNORE INTO api_orders (uuid, user_id, product_name, price, status, order_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (str(uuid), str(user_id), product_name, float(price), status, str(order_id) if order_id else None))
+        conn.commit()
+    except Exception as e:
+        print(f"❌ DB Log Error: {e}")
+    finally:
+        conn.close()
+
+
+def get_pending_api_orders():
+    """جلب الطلبات المعلقة لفحصها"""
+    conn = get_db_connection()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    # نجلب الطلبات التي لم تكتمل ولم يتم إلغاؤها
+    cursor.execute("SELECT * FROM api_orders WHERE status NOT IN ('completed', 'Success', 'rejected', 'Canceled', 'Fail')")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def get_user_api_history(user_id, limit=20):
+    """جلب سجل طلبات API لمستخدم معين"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT * FROM api_orders 
+        WHERE user_id = ? 
+        ORDER BY created_at DESC LIMIT ?
+    ''', (int(user_id), limit))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_pending_api_uuids():
+    """جلب الطلبات التي لم تكتمل بعد لفحصها (للمجدول)"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    # نجلب الطلبات التي ليست مكتملة وليست ملغية/مرفوضة
+    cursor.execute('''
+        SELECT uuid, user_id FROM api_orders 
+        WHERE status NOT IN ('completed', 'Success', 'accept', 'rejected', 'Canceled', 'Fail')
+    ''')
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def update_api_order_status(uuid, status, code=None, notified=0):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    query = "UPDATE api_orders SET status = ?, notified = ?"
+    params = [status, int(notified)]
+
+    if code:
+        query += ", code = ?"
+        params.append(code)
+
+    query += " WHERE uuid = ?"
+    params.append(str(uuid))
+
+    cursor.execute(query, tuple(params))
+    conn.commit()
+    conn.close()
+
+
+def get_all_recent_api_orders(limit=50):
+    """جلب أحدث طلبات API للوحة الأدمن"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM api_orders ORDER BY created_at DESC LIMIT ?', (limit,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]

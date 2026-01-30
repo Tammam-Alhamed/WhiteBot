@@ -1,7 +1,8 @@
 """Shop navigation handlers."""
 from aiogram import Router, types, F
-from aiogram.types import InlineKeyboardButton, FSInputFile, InputMediaPhoto # 👈 أضفنا InputMediaPhoto
+from aiogram.types import InlineKeyboardButton, FSInputFile, InputMediaPhoto
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.fsm.context import FSMContext  # ✅ إضافة هامة
 
 import data.mappings as mappings
 import data.keyboards as kb
@@ -12,24 +13,23 @@ from bot.utils.helpers import smart_edit
 router = Router()
 
 @router.callback_query(F.data.startswith("nav_"))
-async def navigation(call: types.CallbackQuery):
+async def navigation(call: types.CallbackQuery, state: FSMContext):
     """Handle navigation to games/apps/white sections."""
+    await state.clear()  # ✅ تنظيف الحالة عند التنقل
+
     key = call.data.split("_")[1]
 
-    # ✅ قسم الوساطة: يغير الصورة إلى white.jpg
     if key == "white":
         txt = "💎 <b>قسم White للوساطة</b>\n━━━━━━━━━━━━\nمتوفر الآن بأفضل الأسعار.\n👇 اختر الخدمة:"
-
-        media = InputMediaPhoto(
-            media=FSInputFile("assets/white.jpg"),
-            caption=txt,
-            parse_mode="HTML"
-        )
-        # نستخدم edit_media بدلاً من الحذف والإرسال
-        await call.message.edit_media(media=media, reply_markup=kb.white_section_menu())
+        media = InputMediaPhoto(media=FSInputFile("assets/white.jpg"), caption=txt, parse_mode="HTML")
+        try:
+            await call.message.edit_media(media=media, reply_markup=kb.white_section_menu())
+        except:
+            # في حال فشل تعديل الميديا (مثلاً الرسالة قديمة)، نرسل رسالة جديدة
+            await call.message.delete()
+            await call.message.answer_photo(FSInputFile("assets/white.jpg"), caption=txt, reply_markup=kb.white_section_menu())
         return
 
-    # ✅ باقي الأقسام (ألعاب وتطبيقات): تبقى الصورة كما هي (store.jpg)
     mapping = mappings.GAMES_MAP if key == "games" else mappings.APPS_MAP
     prefix = "srch_g" if key == "games" else "srch_a"
 
@@ -44,15 +44,11 @@ async def navigation(call: types.CallbackQuery):
     builder.adjust(2)
     builder.row(InlineKeyboardButton(text="🔙 رجوع للرئيسية", callback_data="home"))
 
-    # هنا نستخدم smart_edit العادية، لأننا قادمون من الرئيسية (store.jpg)
-    # فلا داعي لتغيير الصورة، فقط نغير النص والأزرار
     await smart_edit(call, f"📂 قسم {key}:", builder.as_markup())
 
 
 @router.callback_query(F.data.contains("srch_"))
 async def subcats(call: types.CallbackQuery):
-    # ... (باقي الملف كما هو بدون تغيير) ...
-    # فقط تأكد أنك نسخت الجزء العلوي بشكل صحيح
     data_parts = call.data.split(":")
     prefix = data_parts[0]
     key = data_parts[1]
@@ -66,3 +62,30 @@ async def subcats(call: types.CallbackQuery):
     builder = kb.build_sub_cats(res, key)
     markup = kb.add_back_button(builder, back_to)
     await smart_edit(call, f"📂 <b>{key}</b> - اختر الفئة:", markup)
+
+
+# ==================== ✅Handlers للإلغاء والعودة ====================
+
+@router.callback_query(F.data == "home")
+async def go_home(call: types.CallbackQuery, state: FSMContext):
+    """العودة للرئيسية مع مسح الحالة"""
+    await state.clear()
+
+    # محاولة إرجاع الصورة الأصلية
+    try:
+        media = InputMediaPhoto(media=FSInputFile("assets/store.jpg"), caption="🏠 <b>القائمة الرئيسية:</b>", parse_mode="HTML")
+        await call.message.edit_media(media=media, reply_markup=kb.main_menu())
+    except:
+        # إذا لم نكن في وضع الميديا، نعدل النص فقط أو نرسل جديداً
+        try:
+            await call.message.delete()
+        except: pass
+        await call.message.answer_photo(FSInputFile("assets/store.jpg"), caption="🏠 <b>القائمة الرئيسية:</b>", reply_markup=kb.main_menu())
+
+
+@router.callback_query(F.data == "cancel_op")
+async def cancel_operation(call: types.CallbackQuery, state: FSMContext):
+    """إلغاء أي عملية جارية"""
+    await state.clear()
+    await call.answer("❌ تم الإلغاء")
+    await go_home(call, state)
