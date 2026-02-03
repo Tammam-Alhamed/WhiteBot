@@ -123,7 +123,7 @@ async def execute_broadcast(msg: types.Message, state: FSMContext):
         try:
             await msg.copy_to(chat_id=user_id)
             sent_count += 1
-            await asyncio.sleep(0.05) 
+            await asyncio.sleep(0.15)
         except Exception as e:
             blocked_count += 1
     

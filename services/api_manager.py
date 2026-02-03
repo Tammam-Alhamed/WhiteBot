@@ -63,6 +63,13 @@ def refresh_data():
                     if cat_name:
                         short_id = generate_stable_id(cat_name)
                         _category_id_map[short_id] = cat_name
+
+                # 🔥🔥 التعديل الهام هنا: حفظ البيانات في الداتابيز 🔥🔥
+                try:
+                    database.sync_products_from_api(data)
+                except Exception as db_err:
+                    print(f"⚠️ خطأ في حفظ المنتجات للقاعدة: {db_err}")
+
                 return True
     except Exception as e:
         print(f"❌ خطأ فادح: {e}")

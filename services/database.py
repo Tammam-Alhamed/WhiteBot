@@ -59,6 +59,7 @@ def init_db():
         params_json TEXT,
         status TEXT,
         date TEXT,
+        order_source TEXT DEFAULT 'LOCAL',
         FOREIGN KEY(user_id) REFERENCES users(user_id)
     )
     ''')
@@ -97,7 +98,32 @@ def init_db():
     ''')
 
     conn.commit()
+    
+    # Run migrations
+    _migrate_add_order_source_field()
+    
     conn.close()
+
+
+def _migrate_add_order_source_field():
+    """Migrate: Add order_source field to orders table if it doesn't exist."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Check if column exists
+        cursor.execute("PRAGMA table_info(orders)")
+        columns = {col[1] for col in cursor.fetchall()}
+        
+        if 'order_source' not in columns:
+            # Add the column
+            cursor.execute('ALTER TABLE orders ADD COLUMN order_source TEXT DEFAULT "LOCAL"')
+            conn.commit()
+            print("✅ Migration: Added order_source column to orders table")
+        
+        conn.close()
+    except Exception as e:
+        print(f"⚠️  Migration warning: {e}")
 
 
 # --- Helper Functions ---
@@ -663,3 +689,153 @@ def get_all_recent_api_orders(limit=50):
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+
+def get_all_api_orders(offset=0, limit=50, status: str | None = None):
+    """Get ALL API orders with optional status filter and pagination."""
+    conn = get_db_connection()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    base_query = 'SELECT * FROM api_orders'
+    params = []
+
+    if status:
+        base_query += ' WHERE status = ?'
+        params.append(status)
+
+    base_query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?'
+    params.extend([limit, offset])
+
+    cursor.execute(base_query, tuple(params))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def count_api_orders(status: str | None = None) -> int:
+    """Count API orders with optional status filter."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    if status:
+        cursor.execute('SELECT COUNT(*) FROM api_orders WHERE status = ?', (status,))
+    else:
+        cursor.execute('SELECT COUNT(*) FROM api_orders')
+
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+
+def search_api_orders_by_internal_or_provider_id(term: str):
+    """Search API orders by internal uuid or provider order_id (exact match)."""
+    conn = get_db_connection()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute(
+        'SELECT * FROM api_orders WHERE uuid = ? OR order_id = ?',
+        (term, term)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+# --- Order Source Classification ---
+
+def get_orders_by_status_and_source(status, source=None):
+    """
+    Get orders filtered by status and optional source.
+    source: 'LOCAL', 'API', or None (all)
+    """
+    conn = get_db_connection()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    if source:
+        cursor.execute(
+            "SELECT * FROM orders WHERE status = ? AND order_source = ?",
+            (status, source)
+        )
+    else:
+        cursor.execute(
+            "SELECT * FROM orders WHERE status = ?",
+            (status,)
+        )
+    
+    rows = cursor.fetchall()
+    conn.close()
+    return [_dict_factory_order(row) for row in rows]
+
+
+def get_all_orders_by_source(source=None):
+    """
+    Get all orders filtered by optional source.
+    source: 'LOCAL', 'API', or None (all)
+    """
+    conn = get_db_connection()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    if source:
+        cursor.execute("SELECT * FROM orders WHERE order_source = ?", (source,))
+    else:
+        cursor.execute("SELECT * FROM orders")
+    
+    rows = cursor.fetchall()
+    conn.close()
+    return [_dict_factory_order(row) for row in rows]
+
+def get_order_by_uuid(uuid):
+    conn = get_db_connection()
+    c = conn.cursor()
+    # نبحث في جدول api_orders
+    c.execute("SELECT * FROM api_orders WHERE uuid=?", (uuid,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return dict(row)
+    return None
+
+
+def sync_products_from_api(products_list):
+    """تحديث جدول المنتجات بناءً على بيانات API"""
+    if not products_list: return
+
+    conn = get_db_connection()
+    c = conn.cursor()
+
+    # التأكد من وجود الجدول بالحقول الصحيحة (للاحتياط)
+    # ملاحظة: هذا يعتمد على هيكلية جدولك، هنا نفترض الحقول الأساسية
+    c.execute('''CREATE TABLE IF NOT EXISTS products (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        price REAL,
+        category_name TEXT,
+        min_qty INTEGER DEFAULT 1,
+        max_qty INTEGER DEFAULT 1000,
+        description TEXT
+    )''')
+
+    for p in products_list:
+        # استخراج البيانات
+        pid = str(p.get('id'))
+        name = p.get('name', 'Unknown')
+        price = float(p.get('price', 0))  # السعر بعد إضافة النسبة
+        category = p.get('category_name', 'General')
+        min_q = int(p.get('min', 1))
+        max_q = int(p.get('max', 1000))
+        desc = p.get('description', '')
+
+        # إدخال أو تحديث
+        c.execute("""
+            INSERT OR REPLACE INTO products 
+            (id, name, price, category_name, min_qty, max_qty, description)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (pid, name, price, category, min_q, max_q, desc))
+
+    conn.commit()
+    conn.close()
+    print(f"💾 تم حفظ {len(products_list)} منتج في قاعدة البيانات.")

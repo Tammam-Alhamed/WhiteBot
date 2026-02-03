@@ -9,7 +9,13 @@ import data.keyboards as kb
 from bot.utils.helpers import smart_edit
 from states.admin import AdminState
 import html
-import asyncio  # ✅ ضروري جداً
+import asyncio  # ضروري جداً
+import math
+
+from ui.admin.order_cards import format_api_admin_status, format_admin_order_status
+from constants.orders import ORDER_SOURCE_API, ORDER_SOURCE_LOCAL
+from constants.orders import norm_order_status
+from ui.admin.order_lists import render_admin_user_orders_all_statuses
 
 router = Router()
 
@@ -276,9 +282,9 @@ async def perform_add_balance(msg: types.Message, state: FSMContext):
     try:
         await msg.bot.send_message(
             user_id,
-            f"➕ <b>تم إضافة رصيد لحسابك</b>\n"
-            f"المبلغ: <b>{final_usd_amount:.2f}$</b>\n"
-            f"رصيدك الحالي: <b>{new_bal:.2f}$</b>"
+            f"➕ تم إضافة رصيد لحسابك\n"
+            f"المبلغ: {final_usd_amount:.2f}$\n"
+            f"رصيدك الحالي: {new_bal:.2f}$"
         )
     except:
         pass
@@ -372,9 +378,9 @@ async def perform_sub_balance(msg: types.Message, state: FSMContext):
         try:
             await msg.bot.send_message(
                 user_id,
-                f"➖ <b>تم خصم رصيد من حسابك</b>\n"
-                f"المبلغ: <b>{final_usd_amount:.2f}$</b>\n"
-                f"رصيدك الحالي: <b>{new_bal:.2f}$</b>"
+                f"➖ تم خصم رصيد من حسابك\n"
+                f"المبلغ: {final_usd_amount:.2f}$\n"
+                f"رصيدك الحالي: {new_bal:.2f}$"
             )
         except:
             pass
@@ -431,52 +437,197 @@ async def unban_user_exec(call: types.CallbackQuery):
     await open_user_control(call.message, uid, is_edit=True)
 
 # 🔥🔥 هنا تم إصلاح عرض السجل 🔥🔥
+# ==================== معالجات السجل الجديدة ====================
+
 @router.callback_query(F.data.startswith("admin_history:"))
-async def user_history(call: types.CallbackQuery):
-    if not database.is_user_admin(call.from_user.id):
-        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
+async def user_history_entry(call: types.CallbackQuery):
+    """نقطة الدخول لسجل المستخدم."""
+    if not database.is_user_admin(call.from_user.id): return
+    uid = call.data.split(":")[1]
+    await render_user_history_page(call, uid, 1)
 
-    # إشعار للمستخدم بأننا نعمل
-    await call.answer("⏳ جاري جلب السجل...")
 
-    try:
-        uid = call.data.split(":")[1]
-        txt = f"📜 <b>سجل طلبات المستخدم {uid}:</b>\n━━━━━━━━━━━━\n"
-        has_orders = False
+@router.callback_query(F.data.startswith("hist_page:"))
+async def user_history_pagination(call: types.CallbackQuery):
+    """التعامل مع التنقل بين الصفحات."""
+    if not database.is_user_admin(call.from_user.id): return
+    parts = call.data.split(":")
+    uid = parts[1]
+    page = int(parts[2])
+    await render_user_history_page(call, uid, page)
 
-        # 1. الطلبات المحلية (في الخلفية)
-        local_orders = await asyncio.to_thread(database.get_user_local_orders, uid)
-        if local_orders:
-            has_orders = True
-            txt += "<b>📥 طلبات محلية:</b>\n"
-            for o in local_orders[:10]:
-                status_icon = "✅" if o['status'] == 'completed' else "⏳"
-                price_disp = o['product'].get('price', 0)
-                txt += f"{status_icon} <b>{o['product'].get('name', 'منتج')}</b>\n🔢 {o['id']} | 💰 {price_disp}$\n----------------\n"
 
-        # 2. طلبات API (في الخلفية + معالجة الأخطاء)
-        try:
-            uuids = await asyncio.to_thread(api_manager.get_user_uuids, uid)
-            if uuids:
-                # نفحص آخر 5 فقط لتسريع الاستجابة
-                stats = await asyncio.to_thread(api_manager.check_orders_status, uuids[:5])
-                if stats:
-                    has_orders = True
-                    txt += "\n<b>🌐 طلبات API (الموقع):</b>\n"
-                    for s in stats:
-                        icon = "✅" if s.get('status') in ['completed', 'Success'] else "⏳"
-                        p_name = s.get('product_name', 'Unknown')
-                        price = s.get('price', 0)
-                        txt += f"{icon} {p_name}\n💰 {price}$\n----------------\n"
-        except Exception as e:
-            # إذا فشل الاتصال بالموقع، لا نوقف البوت، بل نظهر المحلية فقط
-            print(f"⚠️ Failed to fetch API orders: {e}")
-            txt += "\n⚠️ تعذر جلب سجلات الموقع حالياً.\n"
+@router.callback_query(F.data.startswith("view_u_ord:"))
+async def view_user_order_details(call: types.CallbackQuery):
+    """عرض تفاصيل طلب معين من السجل مع زر رجوع ذكي."""
+    if not database.is_user_admin(call.from_user.id): return
 
-        if not has_orders: txt += "📂 السجل فارغ"
+    parts = call.data.split(":")
+    user_id = parts[1]
+    order_id = parts[2]
+    page = parts[3]  # رقم الصفحة للعودة إليها
 
-        back_markup = types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="🔙 رجوع", callback_data=f"mang_usr:{uid}")]])
-        await smart_edit(call, txt, back_markup)
-    except Exception as e:
-        print(f"Error in history: {e}")
-        await call.answer("حدث خطأ أثناء جلب السجل", show_alert=True)
+    # البحث عن الطلب
+    all_local = database.get_user_local_orders(user_id)
+    target_order = next((o for o in all_local if str(o.get('id')) == str(order_id)), None)
+    is_api = False
+
+    if not target_order:
+        # بحث في API
+        all_api = database.get_user_api_history(user_id, 200)
+        target_order = next(
+            (o for o in all_api if str(o.get('uuid')) == str(order_id) or str(o.get('order_id')) == str(order_id)),
+            None)
+        if target_order:
+            is_api = True
+
+    if not target_order:
+        return await call.answer("❌ الطلب غير موجود", show_alert=True)
+
+    # عرض البطاقة
+    txt = _build_user_history_card(target_order, is_api=is_api)
+
+    markup = InlineKeyboardBuilder()
+    markup.button(text="🔙 رجوع للسجل", callback_data=f"hist_page:{user_id}:{page}")
+
+    await smart_edit(call, txt, markup.as_markup())
+
+
+# ==================== دوال مساعدة للعرض (جديد) ====================
+
+def _build_user_history_card(order: dict, is_api: bool = False) -> str:
+    """بناء بطاقة تفاصيل الطلب لسجل المستخدم."""
+    if is_api:
+        # تنسيق طلب API
+        oid = order.get('uuid', order.get('id', '---'))
+        status_label, _ = format_api_admin_status(order.get('status', 'Unknown'))
+        service = order.get('product_name', order.get('product', {}).get('name', 'خدمة API'))
+        price = order.get('price', 0)
+        date = order.get('created_at', order.get('date', '---'))
+        code = order.get('code')
+
+        txt = (
+            f"📦 <b>طلب API</b>\n"
+            f"🆔 <b>رقم الطلب:</b> <code>{oid}</code>\n"
+            f"────────────────\n"
+            f"🔹 <b>الخدمة:</b> {service}\n"
+            f"🔹 <b>السعر:</b> {price}$\n"
+            f"🔹 <b>الحالة:</b> {status_label}\n"
+            f"📅 <b>التاريخ:</b> {date}\n"
+        )
+        if code:
+            txt += f"🔑 <b>الكود:</b>\n<pre>{code}</pre>"
+    else:
+        # تنسيق طلب محلي
+        oid = order.get('id', '---')
+        status_label, _ = format_admin_order_status(order.get('status', ''))
+        service = order.get('product', {}).get('name', 'منتج محلي')
+        qty = order.get('qty', 1)
+        total = float(order.get('product', {}).get('price', 0)) * int(qty)
+        date = order.get('date', '---')
+
+        txt = (
+            f"🏠 <b>طلب محلي</b>\n"
+            f"🆔 <b>رقم الطلب:</b> <code>{oid}</code>\n"
+            f"────────────────\n"
+            f"🔸 <b>الخدمة:</b> {service}\n"
+            f"🔸 <b>الإجمالي:</b> {total}$ ({qty} قطعة)\n"
+            f"🔸 <b>الحالة:</b> {status_label}\n"
+            f"📅 <b>التاريخ:</b> {date}\n"
+        )
+        # عرض المدخلات إن وجدت
+        inputs = order.get('inputs')
+        if inputs:
+            txt += f"\n📝 <b>البيانات:</b> {inputs}"
+
+    return txt
+
+
+async def render_user_history_page(call: types.CallbackQuery, user_id: str, page: int):
+    """عرض صفحة من سجل طلبات المستخدم."""
+    PAGE_SIZE = 10
+
+    # 1. جلب البيانات من المصدرين
+    local_orders = await asyncio.to_thread(database.get_user_local_orders, user_id)
+    api_orders = await asyncio.to_thread(database.get_user_api_history, user_id, 100)  # جلب آخر 100 طلب API
+
+    # 2. توحيد البيانات
+    all_orders = []
+
+    for o in local_orders:
+        o['order_source'] = ORDER_SOURCE_LOCAL
+        o['sort_date'] = o.get('date', '')
+        all_orders.append(o)
+
+    for o in api_orders:
+        o['order_source'] = ORDER_SOURCE_API
+        o['sort_date'] = o.get('created_at', '')
+        # التأكد من وجود Product Name
+        if 'product' not in o:
+            o['product'] = {'name': o.get('product_name', 'API Service')}
+        all_orders.append(o)
+
+    # 3. الترتيب (الأحدث أولاً)
+    all_orders.sort(key=lambda x: x.get('sort_date', ''), reverse=True)
+
+    # 4. تقسيم الصفحات
+    if not all_orders:
+        await call.answer("📂 السجل فارغ لهذا المستخدم.", show_alert=True)
+        return
+
+    total_items = len(all_orders)
+    total_pages = math.ceil(total_items / PAGE_SIZE)
+
+    if page > total_pages: page = total_pages
+    if page < 1: page = 1
+
+    start_idx = (page - 1) * PAGE_SIZE
+    end_idx = start_idx + PAGE_SIZE
+    page_items = all_orders[start_idx:end_idx]
+
+    # 5. بناء القائمة
+    txt = f"📜 <b>سجل طلبات المستخدم:</b> <code>{user_id}</code>\n"
+    txt += f"📄 صفحة <b>{page}</b> من <b>{total_pages}</b>\n"
+    txt += f"📦 إجمالي الطلبات: {total_items}"
+    txt += "\n═══════════════════════"
+
+    builder = InlineKeyboardBuilder()
+
+    for order in page_items:
+        is_api = order.get('order_source') == ORDER_SOURCE_API
+        oid = order.get('uuid') if is_api else order.get('id')
+
+        # تحديد الأيقونة والسعر
+        if is_api:
+            icon = "🌐"
+            price = order.get('price', 0)
+            p_name = order.get('product_name', 'API')
+        else:
+            icon = "🏠"
+            price = float(order.get('product', {}).get('price', 0)) * int(order.get('qty', 1))
+            p_name = order.get('product', {}).get('name', 'Local')
+
+        # زر مختصر: أيقونة | رقم الطلب | الخدمة | السعر
+        # تقصير اسم الخدمة ليناسب الزر
+        short_name = (p_name[:15] + '..') if len(p_name) > 15 else p_name
+        btn_text = f"{icon} #{str(oid)[-6:]} | {short_name} | {price}$"
+
+        # Callback: view_u_ord:USER_ID:ORDER_ID:PAGE
+        builder.button(text=btn_text, callback_data=f"view_u_ord:{user_id}:{oid}:{page}")
+
+    builder.adjust(1)
+
+    # أزرار التنقل
+    nav_row = []
+    if page > 1:
+        nav_row.append(types.InlineKeyboardButton(text="⬅️ سابق", callback_data=f"hist_page:{user_id}:{page - 1}"))
+
+    nav_row.append(types.InlineKeyboardButton(text=f"{page}/{total_pages}", callback_data="noop"))
+
+    if page < total_pages:
+        nav_row.append(types.InlineKeyboardButton(text="تالي ➡️", callback_data=f"hist_page:{user_id}:{page + 1}"))
+
+    builder.row(*nav_row)
+    builder.row(types.InlineKeyboardButton(text="🔙 رجوع للملف الشخصي", callback_data=f"mang_usr:{user_id}"))
+
+    await smart_edit(call, txt, builder.as_markup())
