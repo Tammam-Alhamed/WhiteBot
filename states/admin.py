@@ -19,3 +19,5 @@ class AdminState(StatesGroup):
     waiting_for_amount_add = State()  # (قديمة)
     waiting_for_broadcast_msg = State() # للإرسال الجماعي
     waiting_for_category_rename = State()  # لإعادة تسمية الفئة
+    waiting_for_user_message = State()  # لإرسال رسالة لمستخدم محدد
+    waiting_for_reject_note = State()   # لإضافة ملاحظة رفض الإيداع

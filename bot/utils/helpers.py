@@ -13,7 +13,11 @@ def format_price(usd):
         rate = settings.get_setting("exchange_rate")
         val = float(usd)
         syp = val * rate
-        return f"{int(syp):,} ل.س"
+        syp_int = int(syp)
+        # Never show 0 SYP for a positive value (e.g., tiny Jawaker token prices)
+        if val > 0 and syp_int < 1:
+            syp_int = 1
+        return f"{syp_int:,} ل.س"
     except:
         return "غير متوفر"
 

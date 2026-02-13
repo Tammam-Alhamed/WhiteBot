@@ -61,7 +61,29 @@ async def subcats(call: types.CallbackQuery):
     back_to = "nav_games" if prefix == "srch_g" else "nav_apps"
     builder = kb.build_sub_cats(res, key)
     markup = kb.add_back_button(builder, back_to)
-    await smart_edit(call, f"📂 <b>{key}</b> - اختر الفئة:", markup)
+    note = ""
+    if key == "PUBG Mobile":
+        note = "\n\n📝 ننصح باستخدام PUBG Mobile Robot (الأسرع وأفضل سعر)."
+    elif key == "Free Fire":
+        note = "\n\n📝 ننصح باستخدام Free Fire Robot (الأسرع وأفضل سعر)."
+    elif key == "Jawaker":
+        note = "\n\n📝 ننصح باستخدام Jawaker (حسب الكمية) ثم Token Amount."
+
+    await smart_edit(call, f"📂 <b>{key}</b> - اختر الفئة:{note}", markup)
+
+
+@router.callback_query(F.data == "how_to_use")
+async def how_to_use_bot(call: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    txt = (
+        "❓ <b>كيفية استخدام البوت؟</b>\n"
+        "1. اختر القسم المناسب من القائمة الرئيسية.\n"
+        "2. اختر اللعبة/الخدمة ثم المنتج المطلوب.\n"
+        "3. أدخل البيانات المطلوبة وأكمل الطلب.\n"
+        "4. تابع حالة الطلب من قسم طلباتي.\n\n"
+        "🎬 فيديوهات الشرح سيتم إضافتها قريباً."
+    )
+    await smart_edit(call, txt, kb.how_to_use_menu())
 
 
 # ==================== ✅Handlers للإلغاء والعودة ====================

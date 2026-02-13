@@ -141,13 +141,56 @@ async def open_user_control(msg_or_call, user_id, is_edit=False):
                 await msg_or_call.answer(text, reply_markup=markup)
             return
 
-        bal = data.get('balance', 0)
+        bal = float(data.get('balance', 0) or 0.0)
         name = html.escape(str(data.get('name', 'غير معروف')))
         username = f"@{html.escape(data.get('username'))}" if data.get('username') else "لا يوجد"
         status = "🔴 <b>محظور</b>" if data.get('banned') else "🟢 <b>نشط</b>"
 
         is_admin = database.is_user_admin(user_id)
         role = "👮‍♂️ <b>Admin</b>" if is_admin else "👤 <b>User</b>"
+
+        # Stats
+        rate = settings.get_setting("exchange_rate") or 1
+        if rate == 0:
+            rate = 1
+        commission = settings.get_deposit_commission()
+        total_deposited_usd = await asyncio.to_thread(database.get_total_deposited, user_id)
+        user_deposits = await asyncio.to_thread(database.get_user_deposits, user_id)
+        approved_deps = [d for d in user_deposits if (d.get("status") or "").lower() == "approved"]
+
+        dep_sum_usd = 0.0
+        usd_methods = ["sham_usd", "usdt_bep20", "usdt_coinex"]
+        for d in approved_deps:
+            try:
+                amount = float(d.get("amount", 0) or 0)
+                method = d.get("method")
+                if method in usd_methods:
+                    deposit_usd = amount
+                else:
+                    deposit_usd = amount / rate
+                commission_amount = deposit_usd * (commission / 100)
+                dep_sum_usd += max(0.0, deposit_usd - commission_amount)
+            except Exception:
+                continue
+
+        # Orders stats (completed only)
+        local_orders = await asyncio.to_thread(database.get_user_local_orders, user_id)
+        api_orders = await asyncio.to_thread(database.get_user_api_history, user_id, 200)
+        completed_statuses = {"completed", "success", "accept"}
+        local_completed = [o for o in local_orders if (o.get("status") or "").lower() in completed_statuses]
+        api_completed = [o for o in api_orders if (o.get("status") or "").lower() in completed_statuses]
+
+        local_amount = 0.0
+        for o in local_completed:
+            try:
+                qty = int(o.get("qty", 1) or 1)
+                unit = float((o.get("product") or {}).get("price", 0) or 0)
+                local_amount += unit * qty
+            except Exception:
+                continue
+        api_amount = sum(float(o.get("price", 0) or 0) for o in api_completed)
+
+        global_balance = await asyncio.to_thread(database.get_total_users_balance)
 
         txt = (
             f"👤 <b>ملف المستخدم:</b>\n"
@@ -157,6 +200,11 @@ async def open_user_control(msg_or_call, user_id, is_edit=False):
             f"💰 الرصيد: <b>{bal:.2f}$</b>\n"
             f"📊 الحالة: {status}\n"
             f"🔑 الرتبة: {role}\n"
+            f"━━━━━━━━━━━━\n"
+            f"💳 <b>إحصائيات:</b>\n"
+            f"• إجمالي الإيداعات: <b>{len(approved_deps)}</b> | <b>{dep_sum_usd:.2f}$</b>\n"
+            f"• إجمالي الطلبات: <b>{len(local_completed) + len(api_completed)}</b> | <b>{(local_amount + api_amount):.2f}$</b>\n"
+            f"• إجمالي رصيد جميع المستخدمين: <b>{global_balance:.2f}$</b>\n"
             f"━━━━━━━━━━━━"
         )
 
@@ -170,6 +218,11 @@ async def open_user_control(msg_or_call, user_id, is_edit=False):
 
         # الصف الثاني: السجل
         keyboard.row(types.InlineKeyboardButton(text="📜 سجل الطلبات", callback_data=f"admin_history:{user_id}"))
+
+        keyboard.row(
+            types.InlineKeyboardButton(text="✉️ إرسال رسالة لهذا المستخدم", callback_data=f"admin_msg_user:{user_id}"),
+            types.InlineKeyboardButton(text="💳 سجل الإيداعات", callback_data=f"admin_dep_hist:{user_id}")
+        )
 
         # الصف الثالث: الحظر والترقية
         ban_txt = "🟢 فك الحظر" if data.get('banned') else "⛔ حظر"
@@ -195,6 +248,62 @@ async def open_user_control(msg_or_call, user_id, is_edit=False):
     except Exception as e:
         print(f"ERROR in open_user_control: {e}")
         pass
+
+
+@router.callback_query(F.data.startswith("admin_msg_user:"))
+async def admin_msg_user_start(call: types.CallbackQuery, state: FSMContext):
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
+    uid = call.data.split(":")[1]
+    await state.update_data(target_user_id=uid)
+    await state.set_state(AdminState.waiting_for_user_message)
+    await smart_edit(call, f"✉️ أرسل الرسالة الآن للمستخدم:\n<code>{uid}</code>", kb.back_to_admin())
+
+
+@router.message(AdminState.waiting_for_user_message)
+async def admin_msg_user_send(msg: types.Message, state: FSMContext):
+    if not database.is_user_admin(msg.from_user.id):
+        await state.clear()
+        return
+    data = await state.get_data()
+    uid = data.get("target_user_id")
+    if not uid:
+        await state.clear()
+        return
+    if not msg.text:
+        return await msg.answer("❌ يرجى إرسال نص الرسالة فقط.")
+    try:
+        await msg.bot.send_message(int(uid), msg.text)
+        await msg.answer("✅ تم الإرسال.", reply_markup=kb.back_to_admin())
+    except Exception:
+        await msg.answer("❌ فشل الإرسال (ربما المستخدم حظر البوت).", reply_markup=kb.back_to_admin())
+    await state.clear()
+
+
+@router.callback_query(F.data.startswith("admin_dep_hist:"))
+async def admin_user_deposits(call: types.CallbackQuery):
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
+    uid = call.data.split(":")[1]
+    deps = await asyncio.to_thread(database.get_user_deposits, uid)
+
+    if not deps:
+        return await smart_edit(call, "💳 لا يوجد إيداعات لهذا المستخدم.", kb.back_btn(f"mang_usr:{uid}"))
+
+    pending = [d for d in deps if (d.get("status") or "").lower() == "pending"]
+    approved = [d for d in deps if (d.get("status") or "").lower() == "approved"]
+
+    txt = f"💳 <b>سجل الإيداعات:</b> <code>{uid}</code>\n"
+    txt += "━━━━━━━━━━━━\n"
+    txt += f"⏳ Pending: <b>{len(pending)}</b>\n"
+    txt += f"✅ Approved: <b>{len(approved)}</b>\n"
+    txt += "━━━━━━━━━━━━\n"
+    txt += "\n".join(
+        f"- #{d.get('id')} | {d.get('method')} | {d.get('amount')} | {d.get('date')} | {d.get('status')}"
+        for d in deps[:25]
+    )
+
+    await smart_edit(call, txt, kb.back_btn(f"mang_usr:{uid}"))
 
 
 # ==================== إضافة الرصيد (محدث) ====================

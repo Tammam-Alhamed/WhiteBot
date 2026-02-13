@@ -15,6 +15,13 @@ async def cmd_start(message: types.Message, state: FSMContext):
     user = message.from_user
     database.register_user(user.id, user.first_name, user.username)
 
+    if database.is_user_admin(user.id):
+        await message.answer(
+            "اختر الوضع:",
+            reply_markup=kb.start_mode_menu()
+        )
+        return
+
     WELCOME_MESSAGE = f"""
 🤍 مرحبًا بك{user.first_name} في متجرنا الرسمي!
 🎮 متخصصون في:
@@ -34,6 +41,22 @@ async def cmd_start(message: types.Message, state: FSMContext):
         )
     except Exception:
         await message.answer(WELCOME_MESSAGE, reply_markup=kb.main_menu(), parse_mode="HTML")
+
+
+@router.callback_query(F.data == "start_user_mode")
+async def start_user_mode(call: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    await call.answer()
+    await call.message.answer("🏠 القائمة الرئيسية:", reply_markup=kb.main_menu())
+
+
+@router.callback_query(F.data == "start_admin_mode")
+async def start_admin_mode(call: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
+    await call.answer()
+    await call.message.answer("👑 لوحة الإدارة:", reply_markup=kb.admin_dashboard())
 
 
 @router.callback_query(F.data == "home")

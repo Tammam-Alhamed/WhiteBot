@@ -13,3 +13,8 @@ class DepositState(StatesGroup):
     waiting_for_amount = State()  # Step 1: Ask for amount first
     waiting_for_txn_id = State()  # Step 2: Ask for transaction number
     waiting_for_proof = State()   # Step 3: Ask for proof image (optional)
+
+
+class SupportState(StatesGroup):
+    """States for contacting support."""
+    waiting_for_support_note = State()

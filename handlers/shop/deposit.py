@@ -2,6 +2,9 @@
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
 import asyncio  # ✅ 1. إضافة مكتبة asyncio
+
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
 import config
 import services.database as database
 import services.settings as settings
@@ -11,32 +14,103 @@ from states.shop import DepositState
 
 router = Router()
 
+def _build_balance_text(balance_usd: float, total_deposited_usd: float, rate: float) -> str:
+    b_syp = int(round(balance_usd * rate))
+    total_dep_syp = int(round(total_deposited_usd * rate))
+    return (
+        f"💰 <b>محفظتك:</b>\n"
+        f"💵 {balance_usd:.2f} $\n"
+        f"💷 {b_syp:,} ل.س\n"
+        f"━━━━━━━━━━━━\n"
+        f"📊 <b>إجمالي الإيداعات:</b>\n"
+        f"💵 {total_deposited_usd:.2f} $\n"
+        f"💷 {total_dep_syp:,} ل.س"
+    )
+
 # ✅ دالة زر "حسابي" الجديد
 @router.callback_query(F.data == "my_account")
 async def show_my_account(call: types.CallbackQuery):
-    """Show user account details (ID, Total Deposited, Orders Count)."""
-    user_id = call.from_user.id
+    """عرض قائمة حسابي."""
+    await smart_edit(call, "👤 <b>حسابي</b>\nاختر القسم المطلوب:", kb.my_account_menu())
 
-    # ✅ استخدام to_thread لتسريع الاستجابة
-    total_deposited = await asyncio.to_thread(database.get_total_deposited, user_id)
-    orders = await asyncio.to_thread(database.get_user_local_orders, user_id)
 
-    completed_orders = [o for o in orders if o['status'] == 'completed']
-    orders_count = len(completed_orders)
+@router.callback_query(F.data == "my_wallet")
+async def show_my_wallet(call: types.CallbackQuery):
+    """Show wallet balance with deposit shortcut."""
+    u = call.from_user.id
+    b = await asyncio.to_thread(database.get_balance, u)
+    total_deposited = await asyncio.to_thread(database.get_total_deposited, u)
+    rate = settings.get_setting("exchange_rate")
+    txt = _build_balance_text(b, total_deposited, rate)
+    await smart_edit(call, txt, kb.wallet_balance_menu())
+
+
+@router.callback_query(F.data == "my_deposits")
+async def show_my_deposits(call: types.CallbackQuery):
+    """عرض إيداعات المستخدم (معلقة + مقبولة + مرفوضة)."""
+    u = call.from_user.id
+    deposits = await asyncio.to_thread(database.get_user_deposits, u)
+
+    # تقسيم الإيداعات حسب الحالة
+    pending = [d for d in deposits if (d.get("status") or "").lower() == "pending"]
+    approved = [d for d in deposits if (d.get("status") or "").lower() == "approved"]
+    rejected = [d for d in deposits if (d.get("status") or "").lower() == "rejected"]  # إضافة المرفوضة هنا
+
+    def _fmt_row(d):
+        return f"#{d.get('id')} | {d.get('method')} | {d.get('amount')} | {d.get('date')}"
+
+    txt = "💳 <b>إيداعاتي</b>\n"
+    txt += "━━━━━━━━━━━━\n"
+
+    txt += "⏳ <b>معلّقة:</b>\n"
+    txt += ("\n".join(_fmt_row(d) for d in pending[:10]) + "\n") if pending else "لا يوجد طلبات معلقة.\n"
+
+    txt += "━━━━━━━━━━━━\n"
+    txt += "✅ <b>مقبولة:</b>\n"
+    txt += ("\n".join(_fmt_row(d) for d in approved[:10]) + "\n") if approved else "لا يوجد طلبات مقبولة.\n"
+
+    txt += "━━━━━━━━━━━━\n"
+    txt += "❌ <b>مرفوضة:</b>\n"
+    txt += ("\n".join(_fmt_row(d) for d in rejected[:10])) if rejected else "لا يوجد طلبات مرفوضة."
+
+    kb_builder = InlineKeyboardBuilder()
+    # عرض أزرار التفاصيل لأحدث 12 طلب من جميع الحالات
+    for d in (pending + approved + rejected)[:12]:
+        kb_builder.button(text=f"تفاصيل #{d.get('id')}", callback_data=f"view_my_dep:{d.get('id')}")
+
+    kb_builder.adjust(1)
+    kb_builder.row(types.InlineKeyboardButton(text="🔙 رجوع", callback_data="my_account"))
+
+    await smart_edit(call, txt, kb_builder.as_markup())
+
+
+@router.callback_query(F.data.startswith("view_my_dep:"))
+async def view_my_deposit(call: types.CallbackQuery):
+    req_id = call.data.split(":")[1]
+    dep = await asyncio.to_thread(database.get_deposit_request, req_id)
+    if not dep:
+        return await call.answer("❌ الطلب غير موجود.", show_alert=True)
 
     txt = (
-        f"👤 <b>حسابي الشخصي</b>\n"
+        f"💳 <b>تفاصيل الإيداع #{dep.get('id')}</b>\n"
         f"━━━━━━━━━━━━\n"
-        f"🆔 <b>الآيدي الخاص بك:</b>\n"
-        f"<code>{user_id}</code>\n"
-        f"(شارك هذا الرقم مع الإدارة عند الطلب)\n\n"
-        f"📊 <b>إحصائياتك:</b>\n"
-        f"💰 إجمالي الإيداعات: <b>{total_deposited:.2f} $</b>\n"
-        f"📦 الطلبات المكتملة: <b>{orders_count}</b> طلب\n"
-        f"━━━━━━━━━━━━"
+        f"👤 المستخدم: <code>{dep.get('user_id')}</code>\n"
+        f"💳 الطريقة: <b>{dep.get('method')}</b>\n"
+        f"💰 المبلغ: <b>{dep.get('amount')}</b>\n"
+        f"🧾 رقم العملية: <code>{dep.get('txn_id')}</code>\n"
+        f"📅 التاريخ: {dep.get('date')}\n"
+        f"📌 الحالة: <b>{dep.get('status')}</b>\n"
     )
+    admin_note = dep.get('admin_note')
+    if admin_note:
+        txt += f"📝 <b>ملاحظة الإدارة:</b>\n<code>{admin_note}</code>\n"
 
-    await smart_edit(call, txt, kb.back_btn("home"))
+    txt += f"━━━━━━━━━━━━\n"
+    kb_builder = InlineKeyboardBuilder()
+    kb_builder.button(text="📞 تواصل مع الدعم بخصوص هذا الطلب", callback_data=f"support_deposit:{req_id}")
+    kb_builder.button(text="🔙 رجوع", callback_data="my_deposits")
+    kb_builder.adjust(1)
+    await smart_edit(call, txt, kb_builder.as_markup())
 
 
 @router.callback_query(F.data == "deposit_menu")
@@ -55,18 +129,7 @@ async def chk_bal(call: types.CallbackQuery):
     total_deposited = await asyncio.to_thread(database.get_total_deposited, u)
 
     rate = settings.get_setting("exchange_rate")
-    b_syp = int(round(b * rate))
-    total_dep_syp = int(round(total_deposited * rate))
-
-    txt = (
-        f"💰 <b>محفظتك:</b>\n"
-        f"💵 {b:.2f} $\n"
-        f"💷 {b_syp:,} ل.س\n"
-        f"━━━━━━━━━━━━\n"
-        f"📊 <b>إجمالي الإيداعات:</b>\n"
-        f"💵 {total_deposited:.2f} $\n"
-        f"💷 {total_dep_syp:,} ل.س"
-    )
+    txt = _build_balance_text(b, total_deposited, rate)
     await smart_edit(call, txt, kb.back_btn("deposit_menu"))
 
 
@@ -151,6 +214,12 @@ async def process_dep_amount(msg: types.Message, state: FSMContext):
         final_syp = int(round(final_usd * rate))
         currency_symbol = "ل.س"
 
+    # --- الجزء الجديد: حساب الرصيد المتوقع ---
+    current_bal = await asyncio.to_thread(database.get_balance, msg.from_user.id)
+    after_bal_usd = current_bal + final_usd
+    after_bal_syp = int(round(after_bal_usd * rate))
+    # ---------------------------------------
+
     await state.update_data(amount=amount, deposit_usd=deposit_usd, deposit_syp=deposit_syp,
                            final_usd=final_usd, final_syp=final_syp)
 
@@ -174,6 +243,11 @@ async def process_dep_amount(msg: types.Message, state: FSMContext):
         f"━━━━━━━━━━━━\n"
         f"💰 <b>المبلغ المرسل:</b> {amount} {currency_symbol}\n"
         f"💵 <b>الرصيد المضاف:</b> {final_usd:.2f} $\n"
+        f"💷 <b>المعادل بالسوري:</b> {final_syp:,} ل.س\n"
+        f"━━━━━━━━━━━━\n"
+        f"📈 <b>رصيدك بعد قبول الإيداع سيصبح:</b>\n"
+        f"🇺🇸 <b>{after_bal_usd:.2f} $</b>\n"
+        f"🇸🇾 <b>{after_bal_syp:,} ل.س</b>\n"
         f"━━━━━━━━━━━━\n"
         f"{payment_info}\n"
         f"━━━━━━━━━━━━\n"

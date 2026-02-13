@@ -96,7 +96,9 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     ''')
-
+    # استدعاء عمليات الهجرة
+    _migrate_add_order_source_field()
+    _migrate_add_deposit_note_field()
     conn.commit()
     
     # Run migrations
@@ -104,6 +106,23 @@ def init_db():
     
     conn.close()
 
+
+def _migrate_add_deposit_note_field():
+    """إضافة عمود الملاحظات لجدول الإيداعات إذا لم يكن موجوداً."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        # التحقق من وجود العمود
+        cursor.execute("PRAGMA table_info(deposits)")
+        columns = {col[1] for col in cursor.fetchall()}
+
+        if 'admin_note' not in columns:
+            cursor.execute('ALTER TABLE deposits ADD COLUMN admin_note TEXT')
+            conn.commit()
+            print("✅ Migration: Added admin_note column to deposits table")
+        conn.close()
+    except Exception as e:
+        print(f"⚠️ Migration warning (deposits): {e}")
 
 def _migrate_add_order_source_field():
     """Migrate: Add order_source field to orders table if it doesn't exist."""
@@ -393,6 +412,15 @@ def get_all_user_ids():
     return [row['user_id'] for row in rows]
 
 
+def get_total_users_balance():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT SUM(balance) as total_balance FROM users")
+    row = cursor.fetchone()
+    conn.close()
+    return float(row['total_balance'] or 0.0)
+
+
 def get_all_admin_ids():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -463,6 +491,28 @@ def get_all_deposit_requests():
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM deposits")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def update_deposit_status(req_id, status, note=None):
+    """تحديث حالة الإيداع مع إمكانية إضافة ملاحظة."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    if note:
+        cursor.execute("UPDATE deposits SET status = ?, admin_note = ? WHERE id = ?", (status, note, str(req_id)))
+    else:
+        cursor.execute("UPDATE deposits SET status = ? WHERE id = ?", (status, str(req_id)))
+    conn.commit()
+    conn.close()
+
+
+def get_user_deposits(user_id):
+    conn = get_db_connection()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM deposits WHERE user_id = ? ORDER BY date DESC", (str(user_id),))
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]

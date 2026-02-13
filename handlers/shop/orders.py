@@ -137,7 +137,7 @@ async def render_orders_page(call: types.CallbackQuery, page: int):
         return await smart_edit(
             call,
             "📭 <b>سجل الطلبات فارغ</b>\n\nلم تقم بأي طلبات بعد.",
-            InlineKeyboardBuilder().button(text="🔙 رجوع", callback_data="shop_main").as_markup()
+            InlineKeyboardBuilder().button(text="🔙 رجوع", callback_data="my_account").as_markup()
         )
 
     # 4. تقسيم الصفحات
@@ -196,7 +196,7 @@ async def render_orders_page(call: types.CallbackQuery, page: int):
         nav.append(types.InlineKeyboardButton(text="تالي ➡️", callback_data=f"my_ord_pg:{page+1}"))
 
     kb.row(*nav)
-    kb.row(types.InlineKeyboardButton(text="🔙 القائمة الرئيسية", callback_data="home"))
+    kb.row(types.InlineKeyboardButton(text="🔙 حسابي", callback_data="my_account"))
 
     await smart_edit(call, txt, kb.as_markup())
 
@@ -234,9 +234,14 @@ async def view_order_details(call: types.CallbackQuery):
         # بناء البطاقة
         card_text = _build_shop_order_card(target_order, is_api=is_api)
 
-        # زر الرجوع
+        # زر الرجوع + الدعم
         back_kb = InlineKeyboardBuilder()
+        back_kb.button(
+            text="📞 تواصل مع الدعم بخصوص هذا الطلب",
+            callback_data=f"support_order:{type_code}:{oid}:{page}"
+        )
         back_kb.button(text="🔙 رجوع للقائمة", callback_data=f"my_ord_pg:{page}")
+        back_kb.adjust(1)
 
         await smart_edit(call, card_text, back_kb.as_markup())
 

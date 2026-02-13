@@ -12,6 +12,51 @@ from states.shop import ShopState
 
 router = Router()
 
+def _is_jawaker_category(name: str) -> bool:
+    n = (name or "").lower()
+    return "jawaker" in n or "جواكر" in n
+
+
+def _build_new_order_context_text(user_id: int, previous_order: str | None, bal_before: float, bal_after: float, rate: float) -> str:
+    before_syp = int(round(bal_before * rate))
+    after_syp = int(round(bal_after * rate))
+    prev_txt = previous_order if previous_order else "لا يوجد"
+    return (
+        f"🧾 <b>طلبك السابق:</b> {prev_txt}\n"
+        f"💰 <b>رصيدك قبل هذا الطلب:</b> {bal_before:.2f}$ ({before_syp:,} ل.س)\n"
+        f"💳 <b>رصيدك بعد هذا الطلب:</b> {bal_after:.2f}$ ({after_syp:,} ل.س)\n"
+        f"━━━━━━━━━━━━\n"
+    )
+
+
+def _get_previous_order_label(user_id: int) -> str | None:
+    try:
+        local = database.get_user_local_orders(user_id)
+    except Exception:
+        local = []
+    try:
+        api = database.get_user_api_history(user_id, limit=1)
+    except Exception:
+        api = []
+
+    candidates = []
+    if local:
+        latest_local = sorted(local, key=lambda x: x.get("date", ""), reverse=True)[0]
+        candidates.append(("L", latest_local.get("id"), latest_local.get("date", "")))
+    if api:
+        latest_api = api[0]
+        candidates.append(("A", latest_api.get("uuid"), str(latest_api.get("created_at", ""))))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda x: x[2], reverse=True)
+    src, oid, _ = candidates[0]
+    if not oid:
+        return None
+    return f"{src}#{str(oid)[-8:]}"
+
+
 @router.callback_query(F.data.startswith("open:"))
 async def products(call: types.CallbackQuery, state: FSMContext):
     """Show products in a category."""
@@ -31,11 +76,38 @@ async def products(call: types.CallbackQuery, state: FSMContext):
         back_callback = "home"
 
     await state.update_data(back_path=call.data)
+    filtered = []
     for p in prods:
-        p['formatted_price'] = format_price(p['price'])
+        # إزالة فري فاير روبوت 2
+        if str(p.get("name", "")).strip() == "Free Fire Robot 2":
+            continue
 
-    menu = kb.build_products(prods, back_callback)
-    await smart_edit(call, "👇 المنتجات المتاحة:", menu)
+        # معالجة سعر جواكر في القائمة
+        if _is_jawaker_category(p.get("category_name", "")) and float(p.get("price", 0) or 0) > 0:
+            rate = settings.get_setting("exchange_rate")
+            syp = int(float(p["price"]) * rate)
+            if syp < 1:
+                syp = 1
+            p['formatted_price'] = f"{syp:,} ل.س"
+        else:
+            p['formatted_price'] = format_price(p['price'])
+
+        filtered.append(p)
+
+    menu = kb.build_products(filtered, back_callback)
+
+    # ✅ إضافة الملاحظات حسب القسم (النقطة 13)
+    msg_text = "👇 المنتجات المتاحة:"
+    pk_lower = parent_key.lower()
+
+    if "pubg" in pk_lower or "ببجي" in pk_lower:
+        msg_text += "\n\n💡 <b>نصيحة:</b> نوصي باستخدام <b>ببجي موبايل روبوت</b> (الاسرع والافضل سعر)."
+    elif "free" in pk_lower and "fire" in pk_lower:
+        msg_text += "\n\n💡 <b>نصيحة:</b> نوصي باستخدام <b>فري فير روبوت</b> (الاسرع والافضل سعر)."
+    elif "jawaker" in pk_lower or "جواكر" in pk_lower:
+        msg_text += "\n\n💡 <b>نصيحة:</b> نوصي باستخدام <b>(Jawaker حسب الكمية)</b> ومن ثم <b>الكميه المطلوبه</b> لتتمكن من شحن الكمية التي تحب."
+
+    await smart_edit(call, msg_text, menu)
 
 
 @router.callback_query(F.data.startswith("buy:"))
@@ -52,7 +124,6 @@ async def init_buy(call: types.CallbackQuery, state: FSMContext):
     await state.update_data(real_user_id=call.from_user.id)
     await state.update_data(prod=prod, collected=[], idx=0, qty=1, params=prod.get('params', []))
 
-    # Check if PUBG order for currency display consistency
     category_name = prod.get('category_name', '')
     is_pubg = 'PUBG' in category_name or 'ببجي' in category_name
 
@@ -64,13 +135,17 @@ async def init_buy(call: types.CallbackQuery, state: FSMContext):
     else:
         rate = settings.get_setting("exchange_rate")
         price_usd = prod['price']
+        # ✅ ضمان عدم ظهور 0 ليرة (خاصة لجواكر)
         price_syp = int(price_usd * rate)
+        if price_syp < 1 and price_usd > 0:
+            price_syp = 1
+
         desc = prod.get('description', '')
         desc_txt = f"\n\n📝 <b>ملاحظات:</b>\n{desc}" if desc else ""
         txt = (
             f"🛒 <b>شراء:</b> {prod['name']}\n"
             f"💰 <b>السعر:</b>\n"
-            f"🇺🇸 {price_usd:.2f} $\n"
+            f"🇺🇸 {price_usd:.5f} $\n" # زيادة الدقة للأرقام الصغيرة
             f"🇸🇾 {price_syp:,} ل.س{desc_txt}"
         )
 
@@ -90,7 +165,15 @@ async def init_buy(call: types.CallbackQuery, state: FSMContext):
 
     else:
         await state.set_state(ShopState.waiting_for_input)
-        msg_text = f"{txt}\n\n📝 أدخل: <b>{prod['params'][0]}</b>"
+        uid = call.from_user.id
+        bal_before = database.get_balance(uid)
+        total_cost = float(prod.get("price", 0) or 0) * int(1)
+        bal_after = max(0.0, bal_before - total_cost)
+        rate = settings.get_setting("exchange_rate")
+        prev = _get_previous_order_label(uid)
+        ctx = _build_new_order_context_text(uid, prev, bal_before, bal_after, rate)
+
+        msg_text = f"{txt}\n\n{ctx}📝 أدخل: <b>{prod['params'][0]}</b>"
         await smart_edit(call, msg_text, cancel_markup)
 
 
@@ -128,13 +211,26 @@ async def process_qty(msg: types.Message, state: FSMContext):
         await state.update_data(qty=qty)
 
         total = float(data['prod']['price']) * qty
-        await msg.answer(f"✅ الكمية: {qty}\n💰 المجموع: {format_price(total)}")
+        # ✅ تنسيق السعر الإجمالي أيضاً
+        rate = settings.get_setting("exchange_rate")
+        total_syp = int(total * rate)
+        if total_syp < 1 and total > 0:
+            total_syp = 1
+
+        await msg.answer(f"✅ الكمية: {qty}\n💰 المجموع: {total:.4f}$ ({total_syp:,} ل.س)")
 
         if not data['params']:
             await finalize_order(msg, state, msg.bot)
         else:
+            uid = msg.from_user.id
+            bal_before = database.get_balance(uid)
+            total_cost = float(data['prod'].get("price", 0) or 0) * int(qty)
+            bal_after = max(0.0, bal_before - total_cost)
+            # rate = settings.get_setting("exchange_rate") # already fetched
+            prev = _get_previous_order_label(uid)
+            ctx = _build_new_order_context_text(uid, prev, bal_before, bal_after, rate)
             await msg.answer(
-                f"📝 أدخل: <b>{data['params'][0]}</b>",
+                f"{ctx}📝 أدخل: <b>{data['params'][0]}</b>",
                 reply_markup=cancel_markup,
                 parse_mode="HTML"
             )
@@ -209,11 +305,18 @@ async def finalize_order(msg: types.Message, state: FSMContext, bot: Bot):
     total = float(prod['price']) * qty
     rate = settings.get_setting("exchange_rate")
     total_syp = int(total * rate)
+    if total_syp < 1 and total > 0: # ✅ ضمان عدم ظهور 0 عند الخصم
+        total_syp = 1
 
+    bal_before = database.get_balance(uid)
     if not database.deduct_balance(uid, total):
+        need = max(0.0, total - bal_before)
         await msg.answer(
-            f"{config.MSG_NO_BALANCE}\n💰 التكلفة: {format_price(total)}",
-            reply_markup=kb.main_menu(),
+            f"❌ الرصيد غير كافٍ\n"
+            f"يرجى شحن رصيدك\n"
+            f"💰 التكلفة: {format_price(total)}\n"
+            f"تحتاج: {format_price(need)}",
+            reply_markup=kb.insufficient_balance_menu(),
             parse_mode="HTML"
         )
         await state.clear()
@@ -238,7 +341,7 @@ async def finalize_order(msg: types.Message, state: FSMContext, bot: Bot):
             f"🔢 رقم العملية: <code>{res}</code>\n"
             f"━━━━━━━━━━━━\n"
             f"💰 <b>المبلغ المخصوم:</b>\n"
-            f"🇺🇸 {total:.2f} $\n"
+            f"🇺🇸 {total:.4f} $\n"
             f"🇸🇾 {total_syp:,} ل.س\n"
             f"━━━━━━━━━━━━\n"
             f"💎 <b>رصيدك المتبقي:</b>\n"
@@ -249,14 +352,14 @@ async def finalize_order(msg: types.Message, state: FSMContext, bot: Bot):
         )
         await msg.answer(txt, parse_mode="HTML")
 
-        # 🔥🔥 3. إرسال إشعار للأدمن (هذا الجزء كان مفقوداً) 🔥🔥
+        # إشعار للأدمن
         from services.database import get_all_admin_ids
         admin_msg = (
             f"🚀 <b>طلب جديد (عبر API)</b>\n"
             f"👤 المستخدم: <code>{uid}</code>\n"
             f"📦 المنتج: <b>{prod['name']}</b>\n"
             f"🔢 الكمية: {qty}\n"
-            f"💰 السعر: {total:.2f} $\n"
+            f"💰 السعر: {total:.4f} $\n"
             f"🆔 رقم الطلب: <code>{res}</code>\n"
             f"✅ الحالة: تم الإرسال للموقع بنجاح"
         )
@@ -275,7 +378,7 @@ async def finalize_order(msg: types.Message, state: FSMContext, bot: Bot):
             f"🔢 رقم المتابعة: <code>{lid}</code>\n"
             f"━━━━━━━━━━━━\n"
             f"💰 <b>المبلغ المخصوم:</b>\n"
-            f"🇺🇸 {total:.2f} $\n"
+            f"🇺🇸 {total:.4f} $\n"
             f"🇸🇾 {total_syp:,} ل.س\n"
             f"━━━━━━━━━━━━\n"
             f"💎 <b>رصيدك المتبقي:</b>\n"

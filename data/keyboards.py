@@ -6,15 +6,52 @@ import config
 # ==================== قوائم المستخدم ====================
 
 def main_menu():
+    support_url = f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}"
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎮 شحن ألعاب", callback_data="nav_games")],
         [InlineKeyboardButton(text="📱 تطبيقات وخدمات", callback_data="nav_apps")],
         [InlineKeyboardButton(text="💎 White للوساطة", callback_data="nav_white")],
-        [
-            InlineKeyboardButton(text="📦 طلباتي", callback_data="my_orders"),
-            InlineKeyboardButton(text="💰 المحفظة", callback_data="deposit_menu")
-        ],
-        [InlineKeyboardButton(text="👤 حسابي", callback_data="my_account")]  # ✅ زر حسابي الجديد
+        [InlineKeyboardButton(text="📞 تواصل مع الدعم", url=support_url)],
+        [InlineKeyboardButton(text="❓ كيفية استخدام البوت؟", callback_data="how_to_use")],
+        [InlineKeyboardButton(text="👤 حسابي", callback_data="my_account")]
+    ])
+
+
+def my_account_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📦 طلباتي", callback_data="my_orders")],
+        [InlineKeyboardButton(text="💳 إيداعاتي", callback_data="my_deposits")],
+        [InlineKeyboardButton(text="💰 محفظتي", callback_data="my_wallet")],
+        [InlineKeyboardButton(text="🔙 رجوع", callback_data="home")]
+    ])
+
+
+def wallet_balance_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ شحن الرصيد", callback_data="deposit_menu")],
+        [InlineKeyboardButton(text="🔙 رجوع", callback_data="my_account")]
+    ])
+
+
+def insufficient_balance_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ إضافة رصيد", callback_data="deposit_menu")],
+        [InlineKeyboardButton(text="🏠 القائمة الرئيسية", callback_data="home")]
+    ])
+
+
+def start_mode_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👤 وضع المستخدم", callback_data="start_user_mode")],
+        [InlineKeyboardButton(text="👮‍♂️ وضع الأدمن", callback_data="start_admin_mode")]
+    ])
+
+
+def how_to_use_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎬 فيديو الشرح 1 (قريباً)", callback_data="noop")],
+        [InlineKeyboardButton(text="🎬 فيديو الشرح 2 (قريباً)", callback_data="noop")],
+        [InlineKeyboardButton(text="🔙 رجوع", callback_data="home")]
     ])
 
 
@@ -139,7 +176,7 @@ def admin_dashboard():
     kb.button(text="💳 عمولة الإيداع", callback_data="admin_edit_commission")
     kb.button(text="📝 إعادة تسمية الفئات", callback_data="admin_rename_categories")
     kb.button(text="📢 إرسال رسالة للكل", callback_data="admin_broadcast")
-    kb.button(text="📊 التقارير", callback_data="admin_reports")
+    kb.button(text="📊 النشاط", callback_data="admin_activity")
     kb.button(text="🛠 وضع الصيانة", callback_data="admin_maintenance")
     kb.button(text="🔙 خروج", callback_data="close_admin")
     kb.adjust(2, 1, 2, 1, 2)
@@ -180,14 +217,13 @@ import config
 # ==================== قوائم المستخدم ====================
 
 def main_menu():
+    support_url = f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}"
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎮 شحن ألعاب", callback_data="nav_games")],
         [InlineKeyboardButton(text="📱 تطبيقات وخدمات", callback_data="nav_apps")],
         [InlineKeyboardButton(text="💎 White للوساطة", callback_data="nav_white")],
-        [
-            InlineKeyboardButton(text="📦 طلباتي", callback_data="my_orders"),
-            InlineKeyboardButton(text="💰 المحفظة", callback_data="deposit_menu")
-        ],
+        [InlineKeyboardButton(text="📞 تواصل مع الدعم", url=support_url)],
+        [InlineKeyboardButton(text="❓ كيفية استخدام البوت؟", callback_data="how_to_use")],
         [InlineKeyboardButton(text="👤 حسابي", callback_data="my_account")]
     ])
 
@@ -304,7 +340,7 @@ def admin_dashboard():
     kb.button(text="💳 عمولة الإيداع", callback_data="admin_edit_commission")
     kb.button(text="📝 إعادة تسمية الفئات", callback_data="admin_rename_categories")
     kb.button(text="📢 إرسال رسالة للكل", callback_data="admin_broadcast")
-    kb.button(text="📊 التقارير", callback_data="admin_reports")
+    kb.button(text="📊 النشاط", callback_data="admin_activity")
     kb.button(text="🛠 وضع الصيانة", callback_data="admin_maintenance")
     kb.button(text="🔙 خروج", callback_data="close_admin")
     kb.adjust(2, 1, 2, 1, 2)

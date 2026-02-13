@@ -1,11 +1,13 @@
 """Admin deposit management handlers."""
 from aiogram import Router, types, F
+from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 import services.database as database
 import services.settings as settings
 import data.keyboards as kb
 from bot.utils.helpers import smart_edit, format_price
+from states.admin import AdminState
 
 router = Router()
 
@@ -169,9 +171,9 @@ async def approve_deposit(call: types.CallbackQuery):
     final_usd = deposit_usd - commission_amount
     final_syp = int(round(final_usd * rate))
 
-    # Add balance (mark as deposit for statistics)
+    # Add balance (mark as deposit for statistics) + keep row for user history
     new_bal = database.add_balance(req['user_id'], final_usd, is_deposit=True)
-    database.remove_deposit_request(req_id)
+    database.update_deposit_status(req_id, "approved")
 
     new_bal_syp = int(round(new_bal * rate))
 
@@ -180,7 +182,8 @@ async def approve_deposit(call: types.CallbackQuery):
 
     new_status_text = (
         f"{current_content}\n\n✅ <b>تم القبول</b>\n"
-        f"💵 أضيف: {final_usd:.2f}$\n"
+        f"💵 أضيف: {final_usd:.2f}$ ({final_syp:,} ل.س)\n"
+        f"💳 الرصيد بعد الموافقة: {new_bal:.2f}$ ({new_bal_syp:,} ل.س)\n"
         f"بواسطة: {call.from_user.first_name}"
     )
 
@@ -213,14 +216,13 @@ async def approve_deposit(call: types.CallbackQuery):
         f"✅ <b>تم شحن رصيدك بنجاح!</b>\n"
         f"━━━━━━━━━━━━\n"
         f"💳 <b>الطريقة:</b> {method_name}\n"
+        f"💹 <b>سعر الصرف:</b> {rate} ل.س\n"
         f"📥 <b>المبلغ المرسل:</b>\n"
-        f"🇸🇾 {int(amount * rate):,} ل.س\n" if method in usd_methods else f"🇸🇾 {int(amount):,} ل.س\n"
     )
-
     if method in usd_methods:
-        user_msg += f"🇺🇸 {amount:.2f} $\n\n"
+        user_msg += f"🇺🇸 {amount:.2f} $\n🇸🇾 {int(amount * rate):,} ل.س\n\n"
     else:
-        user_msg += f"🇺🇸 {deposit_usd:.2f} $\n\n"
+        user_msg += f"🇸🇾 {int(amount):,} ل.س\n🇺🇸 {deposit_usd:.2f} $\n\n"
 
     if commission > 0:
         user_msg += (
@@ -228,14 +230,14 @@ async def approve_deposit(call: types.CallbackQuery):
         )
 
     user_msg += (
-        f"💵 <b>الرصيد المضاف:</b>\n"
+        f"➕ <b>المبلغ المضاف:</b>\n"
         f"🇺🇸 {final_usd:.2f} $\n"
         f"🇸🇾 {final_syp:,} ل.س\n\n"
-        f"💎 <b>رصيدك الحالي:</b>\n"
+        f"💳 <b>رصيدك بعد الموافقة:</b>\n"
         f"🇺🇸 <b>{new_bal:.2f} $</b>\n"
         f"🇸🇾 <b>{new_bal_syp:,} ل.س</b>\n"
         f"━━━━━━━━━━━━\n"
-        f"شكراً لثقتك بنا! 🌹"
+        f"شكراً لثقتك بنا!"
     )
 
     try:
@@ -250,8 +252,8 @@ async def approve_deposit(call: types.CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("reject_dep:"))
-async def reject_deposit(call: types.CallbackQuery):
-    """Reject deposit request."""
+async def reject_deposit(call: types.CallbackQuery, state: FSMContext):
+    """Reject deposit request (with optional admin note)."""
     if not database.is_user_admin(call.from_user.id):
         return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
     req_id = call.data.split(":")[1]
@@ -260,7 +262,25 @@ async def reject_deposit(call: types.CallbackQuery):
     if not req:
         return await call.answer("الطلب غير موجود", show_alert=True)
 
-    database.remove_deposit_request(req_id)
+    ask_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ نعم", callback_data=f"reject_dep_note_yes:{req_id}")],
+        [InlineKeyboardButton(text="❌ لا", callback_data=f"reject_dep_note_no:{req_id}")]
+    ])
+    await state.clear()
+    await smart_edit(call, "هل تريد إضافة ملاحظة؟", ask_kb)
+    return
+
+
+@router.callback_query(F.data.startswith("reject_dep_note_no:"))
+async def reject_deposit_no_note(call: types.CallbackQuery):
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
+    req_id = call.data.split(":")[1]
+    req = database.get_deposit_request(req_id)
+    if not req:
+        return await call.answer("الطلب غير موجود", show_alert=True)
+
+    database.update_deposit_status(req_id, "rejected")
 
     # --- Handle Photo vs Text Message editing ---
     current_content = call.message.caption if call.message.caption else (call.message.text or "")
@@ -292,6 +312,59 @@ async def reject_deposit(call: types.CallbackQuery):
         )
     except:
         pass
+
+
+@router.callback_query(F.data.startswith("reject_dep_note_yes:"))
+async def reject_deposit_yes_note(call: types.CallbackQuery, state: FSMContext):
+    if not database.is_user_admin(call.from_user.id):
+        return await call.answer("❌ صلاحيات غير كافية.", show_alert=True)
+    req_id = call.data.split(":")[1]
+    req = database.get_deposit_request(req_id)
+    if not req:
+        return await call.answer("الطلب غير موجود", show_alert=True)
+
+    await state.update_data(reject_dep_id=req_id)
+    await state.set_state(AdminState.waiting_for_reject_note)
+    await smart_edit(call, "✍️ اكتب الملاحظة الآن وسيتم إرسالها للمستخدم:", kb.back_btn("admin_deposits"))
+
+
+@router.message(AdminState.waiting_for_reject_note)
+async def reject_deposit_write_note(msg: types.Message, state: FSMContext):
+    if not database.is_user_admin(msg.from_user.id):
+        await state.clear()
+        return
+
+    note = (msg.text or "").strip()
+    if not note:
+        return await msg.answer("❌ يرجى إرسال نص الملاحظة فقط.")
+
+    data = await state.get_data()
+    req_id = data.get("reject_dep_id")
+    req = database.get_deposit_request(req_id)
+    if not req:
+        await state.clear()
+        return await msg.answer("❌ الطلب غير موجود أو تمت معالجته.")
+
+    note = (msg.text or "").strip()
+    data = await state.get_data()
+    req_id = data.get("reject_dep_id")
+
+    # تحديث الحالة مع حفظ الملاحظة في قاعدة البيانات
+    database.update_deposit_status(req_id, "rejected", note=note)
+
+    try:
+        await msg.bot.send_message(
+            req["user_id"],
+            "❌ <b>تم رفض طلب الإيداع الخاص بك.</b>\n"
+            f"📝 <b>ملاحظة الإدارة:</b>\n{note}",
+            parse_mode="HTML",
+            reply_markup=kb.back_btn("deposit_menu")
+        )
+    except:
+        pass
+
+    await msg.answer("✅ تم رفض الطلب وإرسال الملاحظة للمستخدم.", reply_markup=kb.back_to_admin())
+    await state.clear()
 
 
 @router.callback_query(F.data == "bulk_approve_deposits")
@@ -357,7 +430,7 @@ async def confirm_bulk_approve_deposits(call: types.CallbackQuery):
             final_usd = deposit_usd - commission_amount
 
             database.add_balance(req['user_id'], final_usd, is_deposit=True)
-            database.remove_deposit_request(req['id'])
+            database.update_deposit_status(req['id'], "approved")
             approved_count += 1
 
             # Notify user
@@ -425,7 +498,7 @@ async def confirm_bulk_reject_deposits(call: types.CallbackQuery):
 
     for req in pending:
         try:
-            database.remove_deposit_request(req['id'])
+            database.update_deposit_status(req['id'], "rejected")
             rejected_count += 1
 
             # Notify user

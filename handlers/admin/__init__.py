@@ -2,7 +2,7 @@
 from aiogram import Router
 
 # Import all admin handlers
-from . import dashboard, users, orders, deposits, settings, reports
+from . import dashboard, users, orders, deposits, settings, reports, activity
 
 # Create main admin router
 router = Router(name="admin")
@@ -12,5 +12,6 @@ router.include_router(dashboard.router)
 router.include_router(users.router)
 router.include_router(orders.router)
 router.include_router(deposits.router)
+router.include_router(activity.router)
 router.include_router(settings.router)
 router.include_router(reports.router)
